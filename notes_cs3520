@@ -1,0 +1,3250 @@
+********************************** CS3520 **************************************
+
+
+Introduction and Plait **********************************************
+
+__Class Demo__
+
+#lang plait
+
+(define-type Story
+  (happy [text : String])
+  (sad [text : String])
+  (choice [text : String]
+          [l : Story]
+          [r : Story]))
+
+;; Example Storys
+(sad "The end")
+(happy "They lived happily ever after")
+(choice "Take programming languages?"
+        (happy "They lived happily ever after")
+        (sad "The end"))
+
+(define (has-happy? [s : Story]) : Boolean
+  (type-case Story s
+    [(happy t) #t]
+    [(sad t) #f]
+    [(choice t l r) (or(has-happy? l)(has-happy? r))]))
+
+(test (has-happy? (choice "Take programming languages?"
+                          (happy "They lived happily ever after")
+                          (sad "The end")))
+      #t)
+(test (has-happy? (choice "Take programming languages?"
+                          (sad "They didn't live happily ever after")
+                          (sad "The end")))
+      #f)
+______________
+
+
+__NOTES__
+
+interpreters - takes a program and produces a result.
+compiler - takes a program and produces another program.
+
+Racket is a programming language to develope other programming languages.
+
+Dr Racket OPT-P to get previous run command (like R)
+
+if statement -
+(if (equal? "apple" "banana")
+	'yes	; the then 
+	'no)	; the else
+
+
+How to Design Programs *********************************************************
+
+__Class Demo__
+
+#lang plait
+
+(print-only-errors #t)
+
+(define-type Robot-ins
+  (forward [feet : Number])
+  (left)
+  (right))
+
+(define (amount-forward  [ins : Robot-ins])
+  (type-case Robot-ins ins
+    [(forward f) f]
+    [(left) 0]
+    [(right) 0]))
+
+(test (amount-forward (forward 10))
+      10)
+(test (amount-forward (left))
+      0)
+(test (amount-forward (right))
+      0)
+
+;; ---
+
+#;
+(define-type (Listof Robot-ins)
+  empty
+  (cons [item : Robot-ins]
+        [rst : (Listof Robot-ins)]))
+
+(define (total-distance [inss : (Listof Robot-ins)])
+  (type-case (Listof Robot-ins) inss
+    [empty 0]
+    [(cons item r) (+ (amount-forward item)
+                      (total-distance r))]))
+
+(test (total-distance empty)
+      0)
+(test (total-distance (cons (forward 4) (cons (left) empty)))
+      4)
+
+      #lang plait
+
+(print-only-errors #t)
+
+(define-type Robot-ins
+  (forward [feet : Number])
+  (left)
+  (right))
+
+(define (turn-or-not  [ins : Robot-ins])
+  (type-case Robot-ins ins
+    [(forward f) #f]
+    [(left) #t]
+    [(right) #t]))
+
+(test (turn-or-not (forward 10))
+       #f)
+(test (turn-or-not (left))
+      #t)
+(test (turn-or-not (right))
+      #t)
+
+;; ---
+
+#;
+(define-type (Listof Robot-ins)
+  empty
+  (cons [item : Robot-ins]
+        [rst : (Listof Robot-ins)]))
+
+(define (is-turn? [inss : (Listof Robot-ins)])
+  (type-case (Listof Robot-ins) inss
+    [empty #f]
+    [(cons item r) (or (turn-or-not item)
+                       (is-turn? r))]))
+
+(test (is-turn? (cons (forward 5) (cons (left) empty)))
+      #t)
+(test (is-turn? empty)
+      #f)
+(test (is-turn? (cons (forward 10) empty))
+      #f)
+
+
+#lang plait
+
+(print-only-errors #t)
+
+(define-type Robot-ins
+  (forward [feet : Number])
+  (left)
+  (right))
+
+(define (u-turn-or-not [prev : Robot-ins] [ins : Robot-ins])
+  (type-case Robot-ins ins
+    [(forward f) #f]
+    [(left)
+     (type-case Robot-ins prev
+       [(left) #t]
+       [else #f])]
+    [(right)
+     (type-case Robot-ins prev
+       [(right) #t]
+       [else #f])]))
+
+;; In general, we have to try all possible combinations...
+
+(test (u-turn-or-not (forward 4)
+                     (forward 10))
+      #f)
+(test (u-turn-or-not (forward 4)
+                     (left))
+      #f)
+(test (u-turn-or-not (forward 4)
+                     (right))
+      #f)
+
+(test (u-turn-or-not (left)
+                     (forward 10))
+      #f)
+(test (u-turn-or-not (left)
+                     (left))
+      #t)
+(test (u-turn-or-not (left)
+                     (right))
+      #f)
+
+(test (u-turn-or-not (right)
+                     (forward 10))
+      #f)
+(test (u-turn-or-not (right)
+                     (left))
+      #f)
+(test (u-turn-or-not (right)
+                     (right))
+      #t)
+
+;; ---
+
+#;
+(define-type (Listof Robot-ins)
+  empty
+  (cons [item : Robot-ins]
+        [rst : (Listof Robot-ins)]))
+
+;; The `prev` argument acts as an accumulator
+
+(define (any-u-turn? [inss : (Listof Robot-ins)]
+                     [prev : Robot-ins])
+  (type-case (Listof Robot-ins) inss
+    [empty #f]
+    [(cons item r) (or (u-turn-or-not prev item)
+                       (any-u-turn? r item))]))
+
+
+(test (any-u-turn? (cons (right) (cons (right) empty))
+                   (forward 10))
+      #t)
+(test (any-u-turn? (cons (right) (cons (left) empty))
+                   (right))
+      #t)
+(test (any-u-turn? (cons (right) (cons (left) empty))
+                   (left))
+      #f)
+(test (any-u-turn? (cons (forward 5) (cons (left) empty))
+                   (right))
+      #f)
+(test (any-u-turn? empty
+                   (right))
+      #f)
+(test (any-u-turn? (cons (forward 10) empty)
+                   (right))
+      #f)
+
+
+______________
+
+
+__NOTES__
+
+-How to desing a program (design recipe)
+	Determine representaion
+	Write examples (tests)
+	Create a template
+		typecase, extract fields, cross and self calls
+	finish with body implementation case by case
+	run tests
+	--Aug 23 HtDP vids #6 and #7 to refresh--
+
+-Function defintions should always match the data definition.
+ex. 
+	(define-type (Listof Number) ;The template has a self call in it
+	  empty
+	  (cons [n : Number]
+	  		[rst : (Listof Number)]))  ; <- here Listof Number self call
+
+	(define (feed-fish [lon : (Listof Number)]) ;Implementation should also have selfcall
+		(type-case (Listof Number) lon
+		  [empty empty]
+		  [(cons n rst-lon)
+		   (cons (+ 1 n)
+		   		 (feed-fish rst-lon))])) ; <- here feed-fish self call
+
+
+Interpreters *******************************************************
+
+__Class Demo__
+
+#lang plait
+(print-only-errors #t)
+(define-type Exp
+  (numE [n : Number])
+  (plusE [l :(Listof Exp)])
+  (multE [l : Exp]
+         [r : Exp])
+  (diviE [l : Exp]
+         [r : Exp])
+  (absE [n : Exp]))
+
+;; An EXP-S-EXP is either
+;; - `NUMBER
+;; - `{+ EXP-S-EXP ...}
+;; - `{* EXP-S-EXP EXP-S-EXP}
+;; - `{/ EXP-S-EXP EXP-S-EXP}
+;; - `{abs EXP-S-EXP}
+
+(define (parse [s : S-Exp]) : Exp
+  (cond
+    [(s-exp-match? `NUMBER s) (numE (s-exp->number s))]
+    [(s-exp-match? `{+ ANY ...} s)
+     (plusE (map parse (rest (s-exp->list s))))]
+    [(s-exp-match? `{* ANY ANY} s)
+     (multE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{/ ANY ANY} s)
+     (diviE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{abs ANY} s)
+     (absE (parse (second (s-exp->list s))))]
+    [else (error 'parse "invalid input")]))
+
+(test (parse `2)
+      (numE 2))
+(test (parse `{+ 2 1})
+      (plusE (list (numE 2) (numE 1))))
+(test (parse `{* 3 4})
+      (multE (numE 3) (numE 4)))
+(test (parse `{+ {* 3 4} 8})
+      (plusE (list (multE (numE 3) (numE 4))
+                   (numE 8))))
+(test (parse `{+ {+ 7 3}})
+      (plusE (list (plusE (list (numE 7) (numE 3))))))
+(test/exn (parse `asdf)
+          "invalid input") 
+(test (parse `{/ 3 1})
+      (diviE (numE 3) (numE 1)))
+(test (parse `{abs 2})
+      (absE (numE 2)))
+
+(define (interp [a : Exp]) : Number
+  (type-case Exp a
+    [(numE n) n]
+    [(plusE l) (sum-list l)]
+    [(multE l r) (* (interp l) (interp r))]
+    [(diviE l r) (/ (interp l) (interp r))]
+    [(absE n)
+     (local [(define v (interp n))]
+       (cond
+         [(< 0 v) v]
+         [(>= 0 v) (- 0 v)]))]))
+
+(define (sum-list [l : (Listof Exp)])
+  (type-case (Listof Exp) l
+    [empty 0]
+    [(cons f r) (+ (interp f) (sum-list r))]))
+
+(test (sum-list (list))
+      0)
+(test (sum-list (list (numE 1) (numE 2)))
+      3)
+
+(test (interp (numE 3))
+      3)
+(test (interp (parse `2))
+      2)
+(test (interp (parse `{+ 2 1}))
+      3)
+(test (interp (parse `{* 2 1}))
+      2)
+(test (interp (parse `{+ {* 2 3}
+                         {+ 5 8}}))
+      19)
+(test (interp (plusE (list (multE (numE 2) (numE 3))
+                           (plusE (list (numE 5) (numE 8))))))
+      19)
+(test (interp (parse `{/ 3 1}))
+      3)
+(test (interp (parse `{abs -2}))
+      2)
+(test (interp (parse `{abs 8}))
+      8)
+(test (interp (parse `{abs {+ -8 1}}))
+      7)
+(test (interp (parse `{+ 1 2 3 4}))
+      10)
+(test (interp (parse `{+ }))
+      0)
+(test (interp (parse `{+ 3}))
+      3)
+
+;; As long as the absE case doesn't interp its argument
+;; multiple times, this deep nesting shouldn't take any
+;; time:
+(test (interp (parse `(abs (abs (abs (abs (abs (abs (abs (abs (abs (abs (abs (abs (abs (abs (abs (abs (abs (abs (abs (abs -10))))))))))))))))))))))
+      10)
+
+______________
+
+
+__NOTES__
+
+Plait - language we use to write our interpreters.
+Curly - the language we keep making up to be interpreted.
+
+Will use an S-expression ex. `{+ 1 2} so that plait doesnt evaluate the epression
+
+Making sure you have tested your program enough - 
+Dr. Racket -> choose language -> show details -> syntactic test coverage -> ok
+	program will turn black and parts that havent run will be highlighted.
+
+My thought process
+1. Define the language and its grammar.
+2. Write expressions of that language as S-Expressions.
+3. Create parser to check if expressions are valid.
+4. Use design recipe - 
+	Determine the way we will represent the language in plait.
+	Write examples.
+	Create a template.
+	Implement body.
+	Run tests.
+5. Run test coverage.
+
+
+parsing to get abstract syntax
+
+store the result of intrerp so we dont have to call it all the time
+(local) [(define v (interp n))]
+
+[(s-exp-match? `{+ ANY ...})] how to match zero or more ANY's
+- have a list of s-expersions -> want a list of expressions - one to one function
+- use map -> (plusE (map (parse (rest (s-exp->list s)))))
+
+
+Functions and Substitution ******************************************************
+
+__Class Demo__
+
+#lang plait
+
+(define-type Exp
+  (numE [n : Number])
+  (idE [s : Symbol])
+  (plusE [l : Exp] 
+         [r : Exp])
+  (multE [l : Exp]
+         [r : Exp])
+  (appE [s : Symbol]
+        [arg : Exp])
+  (abs-val [ex : Exp])
+  (if-zeroE [ex : Exp]
+            [thn : Exp]
+            [els : Exp]))
+
+(define-type Func-Defn
+  (fd [name : Symbol] 
+      [arg : Symbol] 
+      [body : Exp]))
+
+(module+ test
+  (print-only-errors #t))
+
+;; An EXP is either
+;; - `NUMBER
+;; - `SYMBOL
+;; - `{+ EXP EXP}
+;; - `{* EXP EXP}
+;; - `{SYMBOL EXP)
+
+;; A FUNC-DEFN is
+;; - `{define {SYMBOL SYMBOL} EXP}
+
+;; parse ----------------------------------------
+(define (parse [s : S-Exp]) : Exp
+  (cond
+    [(s-exp-match? `NUMBER s) (numE (s-exp->number s))]
+    [(s-exp-match? `SYMBOL s) (idE (s-exp->symbol s))]
+    [(s-exp-match? `{+ ANY ANY} s)
+     (plusE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{* ANY ANY} s)
+     (multE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{abs ANY} s)
+     (abs-val (parse (second (s-exp->list s))))]
+    [(s-exp-match? `{SYMBOL ANY} s)
+     (appE (s-exp->symbol (first (s-exp->list s)))
+           (parse (second (s-exp->list s))))]
+    [(s-exp-match? `{if0 ANY ANY ANY} s)
+     (if-zeroE (parse (second (s-exp->list s)))
+               (parse (third (s-exp->list s)))
+               (parse (fourth (s-exp->list s))))]
+    [else (error 'parse "invalid input")]))
+
+(define (parse-fundef [s : S-Exp]) : Func-Defn
+  (cond
+    [(s-exp-match? `{define {SYMBOL SYMBOL} ANY} s)
+     (fd (s-exp->symbol (first (s-exp->list (second (s-exp->list s)))))
+         (s-exp->symbol (second (s-exp->list (second (s-exp->list s)))))
+         (parse (third (s-exp->list s))))]
+    [else (error 'parse-fundef "invalid input")]))
+
+(module+ test
+  (test (parse `2)
+        (numE 2))
+  (test (parse `x)
+        (idE 'x))
+  (test (parse `{+ 2 1})
+        (plusE (numE 2) (numE 1)))
+  (test (parse `{* 3 4})
+        (multE (numE 3) (numE 4)))
+  (test (parse `{+ {* 3 4} 8})
+        (plusE (multE (numE 3) (numE 4))
+               (numE 8)))
+  (test (parse `{double 9})
+        (appE 'double (numE 9)))
+  (test (parse `{abs -1})
+        (abs-val (numE -1)))
+  (test/exn (parse `{{+ 1 2}})
+            "invalid input")
+
+  (test (parse-fundef `{define {double x} {+ x x}})
+        (fd 'double 'x (plusE (idE 'x) (idE 'x))))
+  (test/exn (parse-fundef `{def {f x} x})
+            "invalid input")
+
+  (define double-def
+    (parse-fundef `{define {double x} {+ x x}}))
+  (define quadruple-def
+    (parse-fundef `{define {quadruple x} {double {double x}}})))
+
+;; interp ----------------------------------------
+(define (interp [a : Exp] [defs : (Listof Func-Defn)]) : Number
+  (type-case Exp a
+    [(numE n) n]
+    [(idE s) (error 'interp "free variable")]
+    [(plusE l r) (+ (interp l defs) (interp r defs))]
+    [(multE l r) (* (interp l defs) (interp r defs))]
+    [(appE s arg) (local [(define fd (get-fundef s defs))]
+                    (interp (subst (numE (interp arg defs))
+                                   (fd-arg fd)
+                                   (fd-body fd))
+                            defs))]
+    [(abs-val s) (local [(define result (interp s defs))]
+                   (if (< result 0)
+                       (* -1 result)
+                       result))]
+    [(if-zeroE ex thn els) (if (equal? 0 (interp ex defs))
+                               (interp thn defs)
+                               (interp els defs))]))
+
+(module+ test
+  (test (interp (parse `2) empty)
+        2)
+  (test/exn (interp (parse `x) empty)
+            "free variable")
+  (test (interp (parse `{+ 2 1}) empty)
+        3)
+  (test (interp (parse `{* 2 1}) empty)
+        2)
+  (test (interp (parse `{+ {* 2 3}
+                           {+ 5 8}})
+                empty)
+        19)
+  (test (interp (parse `{double 8})
+                (list double-def))
+        16)
+  (test (interp (parse `{quadruple 8})
+                (list double-def quadruple-def))
+        32)
+  (test (interp (parse `{abs -1})
+                empty)
+        1)
+
+  (test (interp (parse `{abs {f 3}})
+                (list (parse-fundef `{define {f x} {+ x 1}})))
+        4)
+
+  (test (interp (parse `{f 3})
+                (list (parse-fundef `{define {f x} {+ {abs x} 1}})))
+        4)
+  (test (interp (parse `{if0 0 1 2})
+                empty)
+        1)
+  (test (interp (parse `{if0 1 1 2})
+                empty)
+        2)
+  (test (interp (parse `{f 3})
+                (list (parse-fundef `{define {f x} {if0 x 2 x}})))
+        3))
+
+;; get-fundef ----------------------------------------
+(define (get-fundef [s : Symbol] [defs : (Listof Func-Defn)]) : Func-Defn
+  (type-case (Listof Func-Defn) defs
+    [empty (error 'get-fundef "undefined function")]
+    [(cons def rst-defs) (if (eq? s (fd-name def))
+                             def
+                             (get-fundef s rst-defs))]))
+
+(module+ test
+  (test (get-fundef 'double (list double-def))
+        double-def)
+  (test (get-fundef 'double (list double-def quadruple-def))
+        double-def)
+  (test (get-fundef 'double (list quadruple-def double-def))
+        double-def)
+  (test (get-fundef 'quadruple (list quadruple-def double-def))
+        quadruple-def)
+  (test/exn (get-fundef 'double empty)
+            "undefined function"))
+
+;; subst ----------------------------------------
+(define (subst [what : Exp] [for : Symbol] [in : Exp])
+  (type-case Exp in
+    [(numE n) in]
+    [(idE s) (if (eq? for s)
+                 what
+                 in)]
+    [(plusE l r) (plusE (subst what for l)
+                        (subst what for r))]
+    [(multE l r) (multE (subst what for l)
+                        (subst what for r))]
+    [(appE s arg) (appE s (subst what for arg))]
+    [(abs-val s)  (abs-val (subst what for s))]
+    [(if-zeroE ex thn els)
+     (if-zeroE (subst what for ex)
+               (subst what for thn)
+               (subst what for els))]))
+
+
+(module+ test
+  (test (subst (numE 8) 'x (numE 9))
+        (numE 9))
+  (test (subst (numE 8) 'x (idE 'x))
+        (numE 8))
+  (test (subst (numE 8) 'x (idE 'y))
+        (idE 'y))
+  (test (subst (numE 8) 'x (plusE (idE 'x) (idE 'y)))
+        (plusE (numE 8) (idE 'y)))
+  (test (subst (numE 8) 'x (multE (idE 'y) (idE 'x)))
+        (multE (idE 'y) (numE 8)))
+  (test (subst (numE 8) 'x (appE 'double (idE 'x)))
+        (appE 'double (numE 8))))
+
+(module+ test
+  (test (subst (parse `8) 'x (parse `9))
+        (numE 9))
+  (test (subst (parse `8) 'x (parse `x))
+        (numE 8))
+  (test (subst (parse `8) 'x (parse `y))
+        (idE 'y))
+  (test (subst (parse `8) 'x (parse `{+ x y}))
+        (parse `{+ 8 y}))
+  (test (subst (parse `8) 'x (parse `{* y x}))
+        (parse `{* y 8}))
+  (test (subst (parse `8) 'x (parse `{double x}))
+        (parse `{double 8}))
+  (test (subst (parse `1) 'x (parse `{abs x}))
+        (parse `{abs 1})))
+
+______________
+
+
+__NOTES__
+
+Functions:
+- a name
+- an argument name
+- a body
+
+function definitions are not expressions.
+
+interpreting functions:
+- interp : (Exp (Listof Func-Defn) -> Number) ;; still want to interpret the function
+- get-fundef : (Symbol (Listof Func-Defn) -> Func-Defn) ;; need to know what the function is
+- subst : (Exp Symbol Exp -> Exp) ;; substitute the funciton with its body
+
+** Follow design recipe **
+
+
+Binding and Environments *********************************************
+
+__Class Demo__
+
+#lang plait
+
+(define-type Exp
+  (numE [n : Number])
+  (idE [s : Symbol])
+  (plusE [arg : (Listof Exp)]) 
+  (multE [l : Exp]
+         [r : Exp])
+  (appE [s : Symbol]
+        [arg : Exp])
+  (letE [n : Symbol] 
+        [rhs : Exp]
+        [body : Exp]))
+
+
+
+(define-type Func-Defn
+  (fd [name : Symbol] 
+      [arg : Symbol] 
+      [body : Exp]))
+
+(define-type Binding
+  (bind [name : Symbol]
+        [val : Number]))
+
+(define-type-alias Env (Listof Binding))
+
+(define mt-env empty)
+(define extend-env cons)
+
+(module+ test
+  (print-only-errors #t))
+
+;; parse ----------------------------------------
+(define (parse [s : S-Exp]) : Exp
+  (cond
+    [(s-exp-match? `NUMBER s) (numE (s-exp->number s))]
+    [(s-exp-match? `SYMBOL s) (idE (s-exp->symbol s))]
+    [(s-exp-match? `{+ ANY ...} s)
+     (plusE (parse-list (rest (s-exp->list s))))]
+    [(s-exp-match? `{* ANY ANY} s)
+     (multE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{SYMBOL ANY} s)
+     (appE (s-exp->symbol (first (s-exp->list s)))
+           (parse (second (s-exp->list s))))]
+    [(s-exp-match? `{let {[SYMBOL ANY]} ANY} s)
+     (let ([bs (s-exp->list (first
+                             (s-exp->list (second
+                                           (s-exp->list s)))))])
+       (letE (s-exp->symbol (first bs))
+             (parse (second bs))
+             (parse (third (s-exp->list s)))))]
+    [else (error 'parse "invalid input")]))
+
+(define (parse-list [i : (Listof S-Exp)]) : (Listof Exp)
+  (type-case (Listof S-Exp) i
+    [empty empty]
+    [(cons f r) (cons (parse f) (parse-list r))]))
+  
+(module+ test
+  (test (parse-list empty)
+        empty)
+  (test (parse-list (list `1))
+        (list (numE 1)))
+  (test (parse-list (list `1 `2))
+        (list (numE 1) (numE 2))))
+                  
+  
+(define (parse-fundef [s : S-Exp]) : Func-Defn
+  (cond
+    [(s-exp-match? `{define {SYMBOL SYMBOL} ANY} s)
+     (fd (s-exp->symbol (first (s-exp->list (second (s-exp->list s)))))
+         (s-exp->symbol (second (s-exp->list (second (s-exp->list s)))))
+         (parse (third (s-exp->list s))))]
+    [else (error 'parse-fundef "invalid input")]))
+
+(module+ test
+  (test (parse `2)
+        (numE 2))
+  (test (parse `x) ; note: backquote instead of normal quote
+        (idE 'x))
+  (test (parse `{+ 2 1})
+        (plusE (list (numE 2) (numE 1))))
+  (test (parse `{+})
+        (plusE empty))
+  (test (parse `{* 3 4})
+        (multE (numE 3) (numE 4)))
+  (test (parse `{+ {* 3 4} 8})
+        (plusE (list (multE (numE 3) (numE 4))
+               (numE 8))))
+  (test (parse `{double 9})
+        (appE 'double (numE 9)))
+  (test (parse `{let {[x {+ 1 2}]}
+                  y})
+        (letE 'x (plusE (list (numE 1) (numE 2)))
+              (idE 'y)))
+  (test/exn (parse `{{+ 1 2}})
+            "invalid input")
+  (test (parse `{+ 1 2 3})
+      (plusE (list (numE 1) (numE 2) (numE 3))))
+
+  (test (parse-fundef `{define {double x} {+ x x}})
+        (fd 'double 'x (plusE (list (idE 'x) (idE 'x)))))
+  (test/exn (parse-fundef `{def {f x} x})
+            "invalid input")
+
+  (define double-def
+    (parse-fundef `{define {double x} {+ x x}}))
+  (define quadruple-def
+    (parse-fundef `{define {quadruple x} {double {double x}}})))
+
+;; interp ----------------------------------------
+(define (interp [a : Exp] [env : Env] [fds : (Listof Func-Defn)]) : Number
+  (type-case Exp a
+    [(numE n) n]
+    [(idE s) (lookup s env)]
+    [(plusE l) (interp-and-sum-list l env fds)]
+    [(multE l r) (* (interp l env fds) (interp r env fds))]
+    [(appE s arg) (local [(define fd (get-fundef s fds))]
+                    (interp (fd-body fd)
+                            (extend-env
+                             (bind (fd-arg fd)
+                                   (interp arg env fds))
+                             mt-env)
+                            fds))]
+    [(letE n rhs body)
+     (interp body
+             (extend-env 
+              (bind n (interp rhs env fds))
+              env)
+             fds)]))
+
+(define (interp-and-sum-list [i : (Listof Exp)] [env : Env] [fds : (Listof Func-Defn)]) : Number
+  (type-case (Listof Exp) i
+    [empty 0]
+    [(cons f r) (+ (interp f env fds) (interp-and-sum-list r env fds))]))
+
+(module+ test
+  (test (interp (parse `2) mt-env empty)
+        2)
+  (test/exn (interp (parse `x) mt-env empty)
+            "free variable")
+  (test (interp (parse `x) 
+                (extend-env (bind 'x 9) mt-env)
+                empty)
+        9)
+  (test (interp (parse `{+ 2 1}) mt-env empty)
+        3)
+  (test (interp (parse `{* 2 1}) mt-env empty)
+        2)
+  (test (interp (parse `{+ {* 2 3} {+ 5 8}})
+                mt-env
+                empty)
+        19)
+  (test (interp (parse `{double 8})
+                mt-env
+                (list double-def))
+        16)
+  (test (interp (parse `{quadruple 8})
+                mt-env
+                (list double-def quadruple-def))
+        32)
+  (test (interp (parse `{let {[x 5]}
+                          {+ x x}})
+                mt-env
+                empty)
+        10)
+  (test (interp (parse `{let {[x 5]}
+                          {let {[x {+ 1 x}]}
+                            {+ x x}}})
+                mt-env
+                empty)
+        12)
+  (test (interp (parse `{let {[x 5]}
+                          {let {[y 6]}
+                            x}})
+                mt-env
+                empty)
+        5)
+  (test/exn (interp (parse `{let {[y 5]}
+                              {bad 2}})
+                    mt-env
+                    (list (parse-fundef `{define {bad x} {+ x y}})))
+            "free variable"))
+
+;; get-fundef ----------------------------------------
+(define (get-fundef [s : Symbol] [defs : (Listof Func-Defn)]) : Func-Defn
+  (type-case (Listof Func-Defn) defs
+    [empty (error 'get-fundef "undefined function")]
+    [(cons def rst-defs) (if (eq? s (fd-name def))
+                             def
+                             (get-fundef s rst-defs))]))
+
+(module+ test
+  (test (get-fundef 'double (list double-def))
+        double-def)
+  (test (get-fundef 'double (list double-def quadruple-def))
+        double-def)
+  (test (get-fundef 'double (list quadruple-def double-def))
+        double-def)
+  (test (get-fundef 'quadruple (list quadruple-def double-def))
+        quadruple-def)
+  (test/exn (get-fundef 'double empty)
+            "undefined function"))
+
+;; lookup ----------------------------------------
+(define (lookup [n : Symbol] [env : Env]) : Number
+  (type-case (Listof Binding) env
+   [empty (error 'lookup "free variable")]
+   [(cons b rst-env) (cond
+                       [(symbol=? n (bind-name b))
+                        (bind-val b)]
+                       [else (lookup n rst-env)])]))
+
+(module+ test
+  (test/exn (lookup 'x mt-env)
+            "free variable")
+  (test (lookup 'x (extend-env (bind 'x 8) mt-env))
+        8)
+  (test (lookup 'x (extend-env
+                    (bind 'x 9)
+                    (extend-env (bind 'x 8) mt-env)))
+        9)
+  (test (lookup 'y (extend-env
+                    (bind 'x 9)
+                    (extend-env (bind 'y 8) mt-env)))
+        8))
+  
+______________
+
+
+__Notes__
+
+Backus-Naur Form (BNF) - more standard way to represent curly grammar.
+Keyword let binds name to closest
+
+binding - where an identifier gets its meaning
+ex. 	'x' is binding
+	{let {['x' 5]} ....}
+	{define {f 'x'} ....}
+
+bound - refers to a binding
+ex. 	'x' is bound
+	{let {[x 5]} .... 'x' ....}
+	{define {f x} .... 'x' ....}
+
+free - does not have a binding
+ex. 	'y' is free
+	{let {[x 5]} .... 'y' ....}
+	{define {f x} .... 'y' ....}
+
+Substitution replaces all of the free identifiers.
+Variables and function names are thought of this way.
+
+
+Functions as Values *********************************************
+
+__Class Demo__
+
+functions_as_values_demo file ; calls to interp
+______________
+
+__Notes__
+
+Closure: combine expression with an enviornment
+
+(trace interp) :show me all args and results of every call to interp
+
+menu -> submodules to run -> turn off tests
+
+
+Mutable State *****************************************************
+
+__Class Demo__
+
+#lang plait
+
+;; Start with "store-with.rkt"
+;;
+;; * Add {swap expr expr}
+
+(define-type-alias Location Number)
+
+(define-type Value
+  (numV [n : Number])
+  (closV [arg : Symbol]
+         [body : Exp]
+         [env : Env])
+  (boxV [l : Location]))
+
+(define-type Exp
+  (numE [n : Number])
+  (idE [s : Symbol])
+  (plusE [l : Exp] 
+         [r : Exp])
+  (multE [l : Exp]
+         [r : Exp])
+  (letE [n : Symbol] 
+        [rhs : Exp]
+        [body : Exp])
+  (lamE [n : Symbol]
+        [body : Exp])
+  (swapE [l : Exp]
+         [r : Exp])
+  (appE [fun : Exp]
+        [arg : Exp])
+  (boxE [arg : Exp])
+  (unboxE [arg : Exp])
+  (setboxE [bx : Exp]
+           [val : Exp])
+  (beginE [l : Exp]
+          [r : Exp]))
+
+(define-type Binding
+  (bind [name : Symbol]
+        [val : Value]))
+
+(define-type-alias Env (Listof Binding))
+
+(define mt-env empty)
+(define extend-env cons)
+
+(define-type Storage
+  (cell [location : Location] 
+        [val : Value]))
+
+(define-type-alias Store (Listof Storage))
+(define mt-store empty)
+(define override-store cons)
+
+(define-type Result
+  (v*s [v : Value] [s : Store]))
+
+(module+ test
+  (print-only-errors #t))
+
+;; parse ----------------------------------------
+(define (parse [s : S-Exp]) : Exp
+  (cond
+    [(s-exp-match? `NUMBER s) (numE (s-exp->number s))]
+    [(s-exp-match? `SYMBOL s) (idE (s-exp->symbol s))]
+    [(s-exp-match? `{+ ANY ANY} s)
+     (plusE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{* ANY ANY} s)
+     (multE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{let {[SYMBOL ANY]} ANY} s)
+     (let ([bs (s-exp->list (first
+                             (s-exp->list (second
+                                           (s-exp->list s)))))])
+       (letE (s-exp->symbol (first bs))
+             (parse (second bs))
+             (parse (third (s-exp->list s)))))]
+    [(s-exp-match? `{swap ANY ANY} s)
+     (swapE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{lambda {SYMBOL} ANY} s)
+     (lamE (s-exp->symbol (first (s-exp->list 
+                                  (second (s-exp->list s)))))
+           (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{box ANY} s)
+     (boxE (parse (second (s-exp->list s))))]
+    [(s-exp-match? `{unbox ANY} s)
+     (unboxE (parse (second (s-exp->list s))))]
+    [(s-exp-match? `{set-box! ANY ANY} s)
+     (setboxE (parse (second (s-exp->list s)))
+              (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{begin ANY ANY} s)
+     (beginE (parse (second (s-exp->list s)))
+             (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{ANY ANY} s)
+     (appE (parse (first (s-exp->list s)))
+           (parse (second (s-exp->list s))))]
+    [else (error 'parse "invalid input")]))
+
+(module+ test
+  (test (parse `2)
+        (numE 2))
+  (test (parse `x)
+        (idE 'x))
+  (test (parse `{+ 2 1})
+        (plusE (numE 2) (numE 1)))
+  (test (parse `{* 3 4})
+        (multE (numE 3) (numE 4)))
+  (test (parse `{+ {* 3 4} 8})
+        (plusE (multE (numE 3) (numE 4))
+               (numE 8)))
+  (test (parse `{let {[x {+ 1 2}]}
+                  y})
+        (letE 'x (plusE (numE 1) (numE 2))
+              (idE 'y)))
+  (test (parse `{lambda {x} 9})
+        (lamE 'x (numE 9)))
+  (test (parse `{double 9})
+        (appE (idE 'double) (numE 9)))
+  (test (parse `{box 0})
+        (boxE (numE 0)))
+  (test (parse `{unbox b})
+        (unboxE (idE 'b)))
+  (test (parse `{set-box! b 0})
+        (setboxE (idE 'b) (numE 0)))
+  (test (parse `{begin 1 2})
+        (beginE (numE 1) (numE 2)))
+  (test/exn (parse `{{+ 1 2}})
+            "invalid input"))
+
+;; with form ----------------------------------------
+(define-syntax-rule
+  (with [(v-id sto-id) call]
+    body)
+  (type-case Result call
+    [(v*s v-id sto-id) body]))
+                                
+;; interp ----------------------------------------
+(define (interp [a : Exp] [env : Env] [sto : Store]) : Result
+  (type-case Exp a
+    [(numE n) (v*s (numV n) sto)]
+    [(idE s) (v*s (lookup s env) sto)]
+    [(plusE l r)
+     (with [(v-l sto-l) (interp l env sto)]
+       (with [(v-r sto-r) (interp r env sto-l)]
+         (v*s (num+ v-l v-r) sto-r)))]
+    [(multE l r)
+     (with [(v-l sto-l) (interp l env sto)]
+       (with [(v-r sto-r) (interp r env sto-l)]
+         (v*s (num* v-l v-r) sto-r)))]
+    [(letE n rhs body)
+     (with [(v-rhs sto-rhs) (interp rhs env sto)]
+       (interp body
+               (extend-env
+                (bind n v-rhs)
+                env)
+               sto-rhs))]
+    [(lamE n body)
+     (v*s (closV n body env) sto)]
+    [(swapE l r)
+     (with [(left-v left-sto) (interp l env sto)]
+           (type-case Value left-v
+             [(boxV left-loc)
+              (with [(right-v right-sto) (interp r env left-sto)]
+                    (type-case Value right-v
+                      [(boxV right-loc)
+                       (let ([lft-tmp (fetch left-loc right-sto)])
+                         (let ([rght-tmp (fetch right-loc right-sto)])
+                           (v*s (numV 0) (override-store (cell right-loc lft-tmp)
+                                           (override-store (cell left-loc rght-tmp)
+                                                           right-sto)))))]
+                                            
+                      [else (error 'interp "not a box")]))]
+             [else (error 'interp "not a box")]))]
+    [(appE fun arg)
+     (with [(v-f sto-f) (interp fun env sto)]
+       (with [(v-a sto-a) (interp arg env sto-f)]
+         (type-case Value v-f
+           [(closV n body c-env)
+            (interp body
+                    (extend-env
+                     (bind n v-a)
+                     c-env)
+                    sto-a)]
+           [else (error 'interp "not a function")])))]
+    [(boxE a)
+     (with [(v sto-v) (interp a env sto)]
+       (let ([l (new-loc sto-v)])
+         (v*s (boxV l) 
+              (override-store (cell l v) 
+                              sto-v))))]
+    [(unboxE a)
+     (with [(v sto-v) (interp a env sto)]
+       (type-case Value v
+         [(boxV l) (v*s (fetch l sto-v) 
+                        sto-v)]
+         [else (error 'interp "not a box")]))]
+    [(setboxE bx val)
+     (with [(v-b sto-b) (interp bx env sto)]
+       (with [(v-v sto-v) (interp val env sto-b)]
+         (type-case Value v-b
+           [(boxV l)
+            (v*s v-v
+                 (override-store (cell l v-v)
+                                 sto-v))]
+           [else (error 'interp "not a box")])))]
+    [(beginE l r)
+     (with [(v-l sto-l) (interp l env sto)]
+       (interp r env sto-l))]))
+
+(module+ test
+  (test (interp (parse `2) mt-env mt-store)
+        (v*s (numV 2) 
+             mt-store))
+  (test/exn (interp (parse `x) mt-env mt-store)
+            "free variable")
+  (test (interp (parse `x) 
+                (extend-env (bind 'x (numV 9)) mt-env)
+                mt-store)
+        (v*s (numV 9)
+             mt-store))
+  (test (interp (parse `{+ 2 1}) mt-env mt-store)
+        (v*s (numV 3)
+             mt-store))
+  (test (interp (parse `{* 2 1}) mt-env mt-store)
+        (v*s (numV 2)
+             mt-store))
+  (test (interp (parse `{+ {* 2 3} {+ 5 8}})
+                mt-env
+                mt-store)
+        (v*s (numV 19)
+             mt-store))
+  (test (interp (parse `{lambda {x} {+ x x}})
+                mt-env
+                mt-store)
+        (v*s (closV 'x (plusE (idE 'x) (idE 'x)) mt-env)
+             mt-store))
+  (test (interp (parse `{let {[x 5]}
+                          {+ x x}})
+                mt-env
+                mt-store)
+        (v*s (numV 10)
+             mt-store))
+  (test (interp (parse `{let {[x 5]}
+                          {let {[x {+ 1 x}]}
+                            {+ x x}}})
+                mt-env
+                mt-store)
+        (v*s (numV 12)
+             mt-store))
+  (test (interp (parse `{let {[x 5]}
+                          {let {[y 6]}
+                            x}})
+                mt-env
+                mt-store)
+        (v*s (numV 5)
+             mt-store))
+  (test (interp (parse `{{lambda {x} {+ x x}} 8})
+                mt-env
+                mt-store)
+        (v*s (numV 16)
+             mt-store))
+  (test (interp (parse `{box 5})
+                mt-env
+                mt-store)
+        (v*s (boxV 1)
+             (override-store (cell 1 (numV 5))
+                             mt-store)))
+  (test (interp (parse `{unbox {box 5}})
+                mt-env
+                mt-store)
+        (v*s (numV 5)
+             (override-store (cell 1 (numV 5))
+                             mt-store)))
+  (test (interp (parse `{set-box! {box 5} 6})
+                mt-env
+                mt-store)
+        (v*s (numV 6)
+             (override-store (cell 1 (numV 6))
+                             (override-store (cell 1 (numV 5))
+                                             mt-store))))
+  (test (interp (parse `{begin 1 2})
+                mt-env
+                mt-store)
+        (v*s (numV 2)
+             mt-store))
+  (test (interp (parse `{let {[b (box 5)]}
+                          {begin
+                            {set-box! b 6}
+                            {unbox b}}})
+                mt-env
+                mt-store)
+        (v*s (numV 6)
+             (override-store (cell 1 (numV 6))
+                             (override-store (cell 1 (numV 5))
+                                             mt-store))))
+
+  (test/exn (interp (parse `{1 2}) mt-env mt-store)
+            "not a function")
+  (test/exn (interp (parse `{+ 1 {lambda {x} x}}) mt-env mt-store)
+            "not a number")
+  (test/exn (interp (parse `{let {[bad {lambda {x} {+ x y}}]}
+                              {let {[y 5]}
+                                {bad 2}}})
+                    mt-env
+                    mt-store)
+            "free variable"))
+
+;; num+ and num* ----------------------------------------
+(define (num-op [op : (Number Number -> Number)] [l : Value] [r : Value]) : Value
+  (cond
+   [(and (numV? l) (numV? r))
+    (numV (op (numV-n l) (numV-n r)))]
+   [else
+    (error 'interp "not a number")]))
+(define (num+ [l : Value] [r : Value]) : Value
+  (num-op + l r))
+(define (num* [l : Value] [r : Value]) : Value
+  (num-op * l r))
+
+(module+ test
+  (test (num+ (numV 1) (numV 2))
+        (numV 3))
+  (test (num* (numV 2) (numV 3))
+        (numV 6)))
+
+;; lookup ----------------------------------------
+(define (lookup [n : Symbol] [env : Env]) : Value
+  (type-case (Listof Binding) env
+   [empty (error 'lookup "free variable")]
+   [(cons b rst-env) (cond
+                       [(symbol=? n (bind-name b))
+                        (bind-val b)]
+                       [else (lookup n rst-env)])]))
+
+(module+ test
+  (test/exn (lookup 'x mt-env)
+            "free variable")
+  (test (lookup 'x (extend-env (bind 'x (numV 8)) mt-env))
+        (numV 8))
+  (test (lookup 'x (extend-env
+                    (bind 'x (numV 9))
+                    (extend-env (bind 'x (numV 8)) mt-env)))
+        (numV 9))
+  (test (lookup 'y (extend-env
+                    (bind 'x (numV 9))
+                    (extend-env (bind 'y (numV 8)) mt-env)))
+        (numV 8)))
+  
+;; store operations ----------------------------------------
+
+(define (new-loc [sto : Store]) : Location
+  (+ 1 (max-address sto)))
+
+(define (max-address [sto : Store]) : Location
+  (type-case (Listof Storage) sto
+   [empty 0]
+   [(cons c rst-sto) (max (cell-location c)
+                          (max-address rst-sto))]))
+
+(define (fetch [l : Location] [sto : Store]) : Value
+  (type-case (Listof Storage) sto
+   [empty (error 'interp "unallocated location")]
+   [(cons c rst-sto) (if (equal? l (cell-location c))
+                         (cell-val c)
+                         (fetch l rst-sto))]))
+
+(module+ test
+  (test (max-address mt-store)
+        0)
+  (test (max-address (override-store (cell 2 (numV 9))
+                                     mt-store))
+        2)
+  
+  (test (fetch 2 (override-store (cell 2 (numV 9))
+                                 mt-store))
+        (numV 9))
+  (test (fetch 2 (override-store (cell 2 (numV 10))
+                                 (override-store (cell 2 (numV 9))
+                                                 mt-store)))
+        (numV 10))
+  (test (fetch 3 (override-store (cell 2 (numV 10))
+                                 (override-store (cell 3 (numV 9))
+                                                 mt-store)))
+        (numV 9))
+  (test/exn (fetch 2 mt-store)
+            "unallocated location"))
+
+(module+ test
+  (test (interp (parse `{let {[a {box 1}]}
+                          {let {[b {box 2}]}
+                            {begin
+                              {swap a b}
+                              {unbox a}}}})
+                mt-env
+                mt-store)
+        (v*s (numV 2) (list (cell 2 (numV 1))
+                            (cell 1 (numV 2))
+                            (cell 2 (numV 2))
+                            (cell 1 (numV 1))))))
+______________
+
+__Notes__
+
+Avoiding states makes it easy to check like the aquarium example you check the old list with the new list and not how the old list has changed. Avoiding state also dosent destroy the old list so you can compare the old list to a new list. 
+
+you need state when you code is part of a larger project where you dont have access to all the communicaiton channels so some state must be kept to interact.
+
+State gives a way to add a side channel to a program. A function can affect a later call to another function without passing that information along.
+
+***Store passing programming style - passing the state of the program around.
+
+
+
+Records ********************************************************
+
+__Class Demo__
+
+______________
+
+
+
+__Notes__
+
+imparative update - any object that has access to that object will see the update involves state.
+
+functional update - instead of changing object create new object with updated value.
+                    Doesnt involve state.
+
+imperative update -> mutable datatype
+functional update -> persistent datatype
+
+
+Variables ********************************************************
+
+__Class Demo__
+
+#lang plait
+
+;; Start with "variable.rkt"
+
+;; Add a `{++ <id>}` form that increments a variable's value
+;; (requiring that it has a number value) and returns the
+;; incremented value
+
+(define-type-alias Location Number)
+
+(define-type Value
+  (numV [n : Number])
+  (closV [arg : Symbol]
+         [body : Exp]
+         [env : Env]))
+
+(define-type Exp
+  (numE [n : Number])
+  (idE [s : Symbol])
+  (plusE [l : Exp] 
+         [r : Exp])
+  (plusplusE [var : Symbol])
+  (multE [l : Exp]
+         [r : Exp])
+  (letE [n : Symbol] 
+        [rhs : Exp]
+        [body : Exp])
+  (lamE [n : Symbol]
+        [body : Exp])
+  (appE [fun : Exp]
+        [arg : Exp])
+  (setE [var : Symbol]
+        [val : Exp])
+  (beginE [l : Exp]
+          [r : Exp]))
+
+(define-type Binding
+  (bind [name : Symbol]
+        [location : Location]))
+
+(define-type-alias Env (Listof Binding))
+
+(define mt-env empty)
+(define extend-env cons)
+
+(define-type Storage
+  (cell [location : Location] 
+        [val : Value]))
+
+(define-type-alias Store (Listof Storage))
+(define mt-store empty)
+(define override-store cons)
+
+(define-type Result
+  (v*s [v : Value] [s : Store]))
+
+(module+ test
+  (print-only-errors #t))
+
+;; parse ----------------------------------------
+(define (parse [s : S-Exp]) : Exp
+  (cond
+    [(s-exp-match? `NUMBER s) (numE (s-exp->number s))]
+    [(s-exp-match? `SYMBOL s) (idE (s-exp->symbol s))]
+    [(s-exp-match? `{++ SYMBOL} s) (plusplusE (s-exp->symbol (second (s-exp->list s))))]
+    [(s-exp-match? `{+ ANY ANY} s)
+     (plusE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{* ANY ANY} s)
+     (multE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{let {[SYMBOL ANY]} ANY} s)
+     (let ([bs (s-exp->list (first
+                             (s-exp->list (second
+                                           (s-exp->list s)))))])
+       (letE (s-exp->symbol (first bs))
+             (parse (second bs))
+             (parse (third (s-exp->list s)))))]
+    [(s-exp-match? `{lambda {SYMBOL} ANY} s)
+     (lamE (s-exp->symbol (first (s-exp->list 
+                                  (second (s-exp->list s)))))
+           (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{set! SYMBOL ANY} s)
+     (setE (s-exp->symbol (second (s-exp->list s)))
+           (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{begin ANY ANY} s)
+     (beginE (parse (second (s-exp->list s)))
+             (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{ANY ANY} s)
+     (appE (parse (first (s-exp->list s)))
+           (parse (second (s-exp->list s))))]
+    [else (error 'parse "invalid input")]))
+
+(module+ test
+  (test (parse `2)
+        (numE 2))
+  (test (parse `x)
+        (idE 'x))
+  (test (parse `{+ 2 1})
+        (plusE (numE 2) (numE 1)))
+  (test (parse `{* 3 4})
+        (multE (numE 3) (numE 4)))
+  (test (parse `{+ {* 3 4} 8})
+        (plusE (multE (numE 3) (numE 4))
+               (numE 8)))
+  (test (parse `{let {[x {+ 1 2}]}
+                  y})
+        (letE 'x (plusE (numE 1) (numE 2))
+              (idE 'y)))
+  (test (parse `{lambda {x} 9})
+        (lamE 'x (numE 9)))
+  (test (parse `{double 9})
+        (appE (idE 'double) (numE 9)))
+  (test (parse `{set! b 0})
+        (setE 'b (numE 0)))
+  (test (parse `{begin 1 2})
+        (beginE (numE 1) (numE 2)))
+  (test/exn (parse `{{+ 1 2}})
+            "invalid input"))
+
+;; with form ----------------------------------------
+(define-syntax-rule
+  (with [(v-id sto-id) call]
+    body)
+  (type-case Result call
+    [(v*s v-id sto-id) body]))
+                                
+;; interp ----------------------------------------
+(define (interp [a : Exp] [env : Env] [sto : Store]) : Result
+  (type-case Exp a
+    [(numE n) (v*s (numV n) sto)]
+    [(idE s) (v*s (fetch (lookup s env) sto)
+                  sto)]
+    [(plusE l r)
+     (with [(v-l sto-l) (interp l env sto)]
+       (with [(v-r sto-r) (interp r env sto-l)]
+         (v*s (num+ v-l v-r) sto-r)))]
+    [(multE l r)
+     (with [(v-l sto-l) (interp l env sto)]
+       (with [(v-r sto-r) (interp r env sto-l)]
+         (v*s (num* v-l v-r) sto-r)))]
+    [(letE n rhs body)
+     (with [(v-rhs sto-rhs) (interp rhs env sto)]
+       (let ([l (new-loc sto-rhs)])
+         (interp body
+                 (extend-env (bind n l)
+                             env)
+                 (override-store (cell l v-rhs)
+                                 sto-rhs))))]
+    [(lamE n body)
+     (v*s (closV n body env) sto)]
+    [(appE fun arg)
+     (with [(v-f sto-f) (interp fun env sto)]
+       (with [(v-a sto-a) (interp arg env sto-f)]
+         (type-case Value v-f
+           [(closV n body c-env)
+            (let ([l (new-loc sto-a)])
+              (interp body
+                      (extend-env (bind n l)
+                                  c-env)
+                      (override-store (cell l v-a)
+                                      sto-a)))]
+           [else (error 'interp "not a function")])))]
+    [(setE var val)
+     (let ([l (lookup var env)])
+       (with [(v-v sto-v) (interp val env sto)]
+         (v*s v-v
+              (override-store (cell l v-v)
+                              sto-v))))]
+    [(beginE l r)
+     (with [(v-l sto-l) (interp l env sto)]
+       (interp r env sto-l))]
+    [(plusplusE s) (let ([l (lookup s env)])
+                         (type-case Value (fetch l sto)
+                           [(numV n) (let ([num (numV (+ n 1))])
+                                       (v*s num (override-store (cell l num) sto)))]
+                           [else(error 'interp "not a number")]))]))
+
+(module+ test
+  (test (interp (parse `2) mt-env mt-store)
+        (v*s (numV 2) 
+             mt-store))
+  (test/exn (interp (parse `x) mt-env mt-store)
+            "free variable")
+  (test (interp (parse `x) 
+                (extend-env (bind 'x 1) mt-env)
+                (override-store (cell 1 (numV 9))
+                                mt-store))
+        (v*s (numV 9)
+             (override-store (cell 1 (numV 9))
+                             mt-store)))
+  (test (interp (parse `{+ 2 1}) mt-env mt-store)
+        (v*s (numV 3)
+             mt-store))
+  (test (interp (parse `{* 2 1}) mt-env mt-store)
+        (v*s (numV 2)
+             mt-store))
+  (test (interp (parse `{+ {* 2 3} {+ 5 8}})
+                mt-env
+                mt-store)
+        (v*s (numV 19)
+             mt-store))
+  (test (interp (parse `{lambda {x} {+ x x}})
+                mt-env
+                mt-store)
+        (v*s (closV 'x (plusE (idE 'x) (idE 'x)) mt-env)
+             mt-store))
+  (test (interp (parse `{let {[x 5]}
+                          {+ x x}})
+                mt-env
+                mt-store)
+        (v*s (numV 10)
+             (override-store (cell 1 (numV 5))
+                             mt-store)))
+  (test (interp (parse `{let {[x 5]}
+                          {let {[x {+ 1 x}]}
+                            {+ x x}}})
+                mt-env
+                mt-store)
+        (v*s (numV 12)
+             (override-store (cell 2 (numV 6))
+                             (override-store (cell 1 (numV 5))
+                                             mt-store))))
+  (test (interp (parse `{let {[x 5]}
+                          {let {[y 6]}
+                            x}})
+                mt-env
+                mt-store)
+        (v*s (numV 5)
+             (override-store (cell 2 (numV 6))
+                             (override-store (cell 1 (numV 5))
+                                             mt-store))))
+  (test (interp (parse `{{lambda {x} {+ x x}} 8})
+                mt-env
+                mt-store)
+        (v*s (numV 16)
+             (override-store (cell 1 (numV 8))
+                             mt-store)))
+  (test (interp (parse `{begin 1 2})
+                mt-env
+                mt-store)
+        (v*s (numV 2)
+             mt-store))
+  (test (interp (parse `{let {[x 5]}
+                          {begin
+                            {set! x 6}
+                            x}})
+                mt-env
+                mt-store)
+        (v*s (numV 6)
+             (override-store (cell 1 (numV 6))
+                             (override-store (cell 1 (numV 5))
+                                             mt-store))))
+
+  (test (interp (parse `{let {[x 5]}
+                          {begin
+                            {++ x}
+                            x}})
+                mt-env
+                mt-store)
+        (v*s (numV 6) (override-store (cell 1 (numV 6))
+                             (override-store (cell 1 (numV 5))
+                                             mt-store))))
+
+  (test (interp (parse `{++ x})
+                (extend-env (bind 'x 1) mt-env)
+                (override-store (cell 1 (numV 5))
+                                mt-store))
+        (v*s (numV 6) (override-store (cell 1 (numV 6))
+                                      (override-store (cell 1 (numV 5))
+                                                      mt-store))))
+
+  (test/exn (interp (parse `{1 2}) mt-env mt-store)
+            "not a function")
+  (test/exn (interp (parse `{+ 1 {lambda {x} x}}) mt-env mt-store)
+            "not a number")
+  (test/exn (interp (parse `{let {[bad {lambda {x} {+ x y}}]}
+                              {let {[y 5]}
+                                {bad 2}}})
+                    mt-env
+                    mt-store)
+            "free variable"))
+
+;; num+ and num* ----------------------------------------
+(define (num-op [op : (Number Number -> Number)] [l : Value] [r : Value]) : Value
+  (cond
+   [(and (numV? l) (numV? r))
+    (numV (op (numV-n l) (numV-n r)))]
+   [else
+    (error 'interp "not a number")]))
+(define (num+ [l : Value] [r : Value]) : Value
+  (num-op + l r))
+(define (num* [l : Value] [r : Value]) : Value
+  (num-op * l r))
+
+(module+ test
+  (test (num+ (numV 1) (numV 2))
+        (numV 3))
+  (test (num* (numV 2) (numV 3))
+        (numV 6)))
+
+;; lookup ----------------------------------------
+(define (lookup [n : Symbol] [env : Env]) : Location
+  (type-case (Listof Binding) env
+   [empty (error 'lookup "free variable")]
+   [(cons b rst-env) (cond
+                       [(symbol=? n (bind-name b))
+                        (bind-location b)]
+                       [else (lookup n rst-env)])]))
+
+(module+ test
+  (test/exn (lookup 'x mt-env)
+            "free variable")
+  (test (lookup 'x (extend-env (bind 'x 8) mt-env))
+        8)
+  (test (lookup 'x (extend-env
+                    (bind 'x 9)
+                    (extend-env (bind 'x 8) mt-env)))
+        9)
+  (test (lookup 'y (extend-env
+                    (bind 'x 9)
+                    (extend-env (bind 'y 8) mt-env)))
+        8))
+  
+;; store operations ----------------------------------------
+
+(define (new-loc [sto : Store]) : Location
+  (+ 1 (max-address sto)))
+
+(define (max-address [sto : Store]) : Location
+  (type-case (Listof Storage) sto
+   [empty 0]
+   [(cons c rst-sto) (max (cell-location c)
+                          (max-address rst-sto))]))
+
+(define (fetch [l : Location] [sto : Store]) : Value
+  (type-case (Listof Storage) sto
+   [empty (error 'interp "unallocated location")]
+   [(cons c rst-sto) (if (equal? l (cell-location c))
+                         (cell-val c)
+                         (fetch l rst-sto))]))
+
+(module+ test
+  (test (max-address mt-store)
+        0)
+  (test (max-address (override-store (cell 2 (numV 9))
+                                     mt-store))
+        2)
+  
+  (test (fetch 2 (override-store (cell 2 (numV 9))
+                                 mt-store))
+        (numV 9))
+  (test (fetch 2 (override-store (cell 2 (numV 10))
+                                 (override-store (cell 2 (numV 9))
+                                                 mt-store)))
+        (numV 10))
+  (test (fetch 3 (override-store (cell 2 (numV 10))
+                                 (override-store (cell 3 (numV 9))
+                                                 mt-store)))
+        (numV 9))
+  (test/exn (fetch 2 mt-store)
+            "unallocated location"))
+
+_Other Demo_
+
+#lang plait
+
+(define-type-alias Location Number)
+
+(define-type Value
+  (numV [n : Number])
+  (closV [arg : Symbol]
+         [body : Exp]
+         [env : Env]))
+
+(define-type Exp
+  (numE [n : Number])
+  (idE [s : Symbol])
+  (plusE [l : Exp] 
+         [r : Exp])
+  (multE [l : Exp]
+         [r : Exp])
+  (letE [n : Symbol] 
+        [rhs : Exp]
+        [body : Exp])
+  (lamE [n : Symbol]
+        [body : Exp])
+  (appE [fun : Exp]
+        [arg : Exp])
+  (setE [var : Symbol]
+        [val : Exp])
+  (beginE [l : Exp]
+          [r : Exp])
+  (fluidletE [n : Symbol] 
+             [rhs : Exp]
+             [body : Exp]))
+          
+
+(define-type Binding
+  (bind [name : Symbol]
+        [location : Location]))
+
+(define-type-alias Env (Listof Binding))
+
+(define mt-env empty)
+(define extend-env cons)
+
+(define-type Storage
+  (cell [location : Location] 
+        [val : Value]))
+
+(define-type-alias Store (Listof Storage))
+(define mt-store empty)
+(define override-store cons)
+
+(define-type Result
+  (v*s [v : Value] [s : Store]))
+
+(module+ test
+  (print-only-errors #t))
+
+;; parse ----------------------------------------
+(define (parse [s : S-Exp]) : Exp
+  (cond
+    [(s-exp-match? `NUMBER s) (numE (s-exp->number s))]
+    [(s-exp-match? `SYMBOL s) (idE (s-exp->symbol s))]
+    [(s-exp-match? `{+ ANY ANY} s)
+     (plusE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{* ANY ANY} s)
+     (multE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{let {[SYMBOL ANY]} ANY} s)
+     (let ([bs (s-exp->list (first
+                             (s-exp->list (second
+                                           (s-exp->list s)))))])
+       (letE (s-exp->symbol (first bs))
+             (parse (second bs))
+             (parse (third (s-exp->list s)))))]
+    [(s-exp-match? `{fluid-let {[SYMBOL ANY]} ANY} s)
+     (let ([bs (s-exp->list (first
+                             (s-exp->list (second
+                                           (s-exp->list s)))))])
+       (fluidletE (s-exp->symbol (first bs))
+                  (parse (second bs))
+                  (parse (third (s-exp->list s)))))]
+    [(s-exp-match? `{lambda {SYMBOL} ANY} s)
+     (lamE (s-exp->symbol (first (s-exp->list 
+                                  (second (s-exp->list s)))))
+           (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{set! SYMBOL ANY} s)
+     (setE (s-exp->symbol (second (s-exp->list s)))
+           (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{begin ANY ANY} s)
+     (beginE (parse (second (s-exp->list s)))
+             (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{ANY ANY} s)
+     (appE (parse (first (s-exp->list s)))
+           (parse (second (s-exp->list s))))]
+    [else (error 'parse "invalid input")]))
+
+(module+ test
+  (test (parse `2)
+        (numE 2))
+  (test (parse `x)
+        (idE 'x))
+  (test (parse `{+ 2 1})
+        (plusE (numE 2) (numE 1)))
+  (test (parse `{* 3 4})
+        (multE (numE 3) (numE 4)))
+  (test (parse `{+ {* 3 4} 8})
+        (plusE (multE (numE 3) (numE 4))
+               (numE 8)))
+  (test (parse `{let {[x {+ 1 2}]}
+                  y})
+        (letE 'x (plusE (numE 1) (numE 2))
+              (idE 'y)))
+  (test (parse `{lambda {x} 9})
+        (lamE 'x (numE 9)))
+  (test (parse `{double 9})
+        (appE (idE 'double) (numE 9)))
+  (test (parse `{set! b 0})
+        (setE 'b (numE 0)))
+  (test (parse `{begin 1 2})
+        (beginE (numE 1) (numE 2)))
+  (test/exn (parse `{{+ 1 2}})
+            "invalid input"))
+
+;; with form ----------------------------------------
+(define-syntax-rule
+  (with [(v-id sto-id) call]
+    body)
+  (type-case Result call
+    [(v*s v-id sto-id) body]))
+                                
+;; interp ----------------------------------------
+(define (interp [a : Exp] [env : Env] [sto : Store]) : Result
+  (type-case Exp a
+    [(numE n) (v*s (numV n) sto)]
+    [(idE s) (v*s (fetch (lookup s env) sto)
+                  sto)]
+    [(plusE l r)
+     (with [(v-l sto-l) (interp l env sto)]
+       (with [(v-r sto-r) (interp r env sto-l)]
+         (v*s (num+ v-l v-r) sto-r)))]
+    [(multE l r)
+     (with [(v-l sto-l) (interp l env sto)]
+       (with [(v-r sto-r) (interp r env sto-l)]
+         (v*s (num* v-l v-r) sto-r)))]
+    [(letE n rhs body)
+     (with [(v-rhs sto-rhs) (interp rhs env sto)]
+       (let ([l (new-loc sto-rhs)])
+         (interp body
+                 (extend-env (bind n l)
+                             env)
+                 (override-store (cell l v-rhs)
+                                 sto-rhs))))]
+    [(fluidletE n rhs body)
+     (with [(v-rhs sto-rhs) (interp rhs env sto)]           
+       (let ([l (lookup n env)])
+         (let ([tmp (fetch l sto-rhs)])
+           (with ([v-r sto-r] (interp body
+                                      env
+                                      (override-store (cell l v-rhs)
+                                                      sto-rhs)))
+                 (v*s v-r
+                      (override-store (cell l tmp)
+                                      sto-r))))))]
+    [(lamE n body)
+     (v*s (closV n body env) sto)]
+    [(appE fun arg)
+     (with [(v-f sto-f) (interp fun env sto)]
+       (with [(v-a sto-a) (interp arg env sto-f)]
+         (type-case Value v-f
+           [(closV n body c-env)
+            (let ([l (new-loc sto-a)])
+              (interp body
+                      (extend-env (bind n l)
+                                  c-env)
+                      (override-store (cell l v-a)
+                                      sto-a)))]
+           [else (error 'interp "not a function")])))]
+    [(setE var val)
+     (let ([l (lookup var env)])
+       (with [(v-v sto-v) (interp val env sto)]
+         (v*s v-v
+              (override-store (cell l v-v)
+                              sto-v))))]
+    [(beginE l r)
+     (with [(v-l sto-l) (interp l env sto)]
+       (interp r env sto-l))]))
+
+(module+ test
+  (test (interp (parse `2) mt-env mt-store)
+        (v*s (numV 2) 
+             mt-store))
+  (test/exn (interp (parse `x) mt-env mt-store)
+            "free variable")
+  (test (interp (parse `x) 
+                (extend-env (bind 'x 1) mt-env)
+                (override-store (cell 1 (numV 9))
+                                mt-store))
+        (v*s (numV 9)
+             (override-store (cell 1 (numV 9))
+                             mt-store)))
+  (test (interp (parse `{+ 2 1}) mt-env mt-store)
+        (v*s (numV 3)
+             mt-store))
+  (test (interp (parse `{* 2 1}) mt-env mt-store)
+        (v*s (numV 2)
+             mt-store))
+  (test (interp (parse `{+ {* 2 3} {+ 5 8}})
+                mt-env
+                mt-store)
+        (v*s (numV 19)
+             mt-store))
+  (test (interp (parse `{lambda {x} {+ x x}})
+                mt-env
+                mt-store)
+        (v*s (closV 'x (plusE (idE 'x) (idE 'x)) mt-env)
+             mt-store))
+  (test (interp (parse `{let {[x 5]}
+                          {+ x x}})
+                mt-env
+                mt-store)
+        (v*s (numV 10)
+             (override-store (cell 1 (numV 5))
+                             mt-store)))
+  (test (interp (parse `{let {[x 5]}
+                          {let {[x {+ 1 x}]}
+                            {+ x x}}})
+                mt-env
+                mt-store)
+        (v*s (numV 12)
+             (override-store (cell 2 (numV 6))
+                             (override-store (cell 1 (numV 5))
+                                             mt-store))))
+  (test (interp (parse `{let {[x 5]}
+                          {let {[y 6]}
+                            x}})
+                mt-env
+                mt-store)
+        (v*s (numV 5)
+             (override-store (cell 2 (numV 6))
+                             (override-store (cell 1 (numV 5))
+                                             mt-store))))
+  (test (interp (parse `{{lambda {x} {+ x x}} 8})
+                mt-env
+                mt-store)
+        (v*s (numV 16)
+             (override-store (cell 1 (numV 8))
+                             mt-store)))
+  (test (interp (parse `{begin 1 2})
+                mt-env
+                mt-store)
+        (v*s (numV 2)
+             mt-store))
+  (test (interp (parse `{let {[x 5]}
+                          {begin
+                            {set! x 6}
+                            x}})
+                mt-env
+                mt-store)
+        (v*s (numV 6)
+             (override-store (cell 1 (numV 6))
+                             (override-store (cell 1 (numV 5))
+                                             mt-store))))
+
+  (test (interp (parse `{let {[x 1]}
+                          {let {[f {lambda {y}
+                                     {+ y x}}]}
+                            {fluid-let {[x 2]}
+                              {f 0}}}})
+                mt-env
+                mt-store)
+        (v*s (numV 2)
+             (list (cell 1 (numV 1))
+                   (cell 3 (numV 0))
+                   (cell 1 (numV 2))
+                   (cell 2 (closV 'y
+                                  (plusE (idE 'y) (idE 'x))
+                                  (extend-env(bind 'x 1)mt-env)))
+                   (cell 1 (numV 1)))))
+
+  (test/exn (interp (parse `{1 2}) mt-env mt-store)
+            "not a function")
+  (test/exn (interp (parse `{+ 1 {lambda {x} x}}) mt-env mt-store)
+            "not a number")
+  (test/exn (interp (parse `{let {[bad {lambda {x} {+ x y}}]}
+                              {let {[y 5]}
+                                {bad 2}}})
+                    mt-env
+                    mt-store)
+            "free variable"))
+
+;; num+ and num* ----------------------------------------
+(define (num-op [op : (Number Number -> Number)] [l : Value] [r : Value]) : Value
+  (cond
+   [(and (numV? l) (numV? r))
+    (numV (op (numV-n l) (numV-n r)))]
+   [else
+    (error 'interp "not a number")]))
+(define (num+ [l : Value] [r : Value]) : Value
+  (num-op + l r))
+(define (num* [l : Value] [r : Value]) : Value
+  (num-op * l r))
+
+(module+ test
+  (test (num+ (numV 1) (numV 2))
+        (numV 3))
+  (test (num* (numV 2) (numV 3))
+        (numV 6)))
+
+;; lookup ----------------------------------------
+(define (lookup [n : Symbol] [env : Env]) : Location
+  (type-case (Listof Binding) env
+   [empty (error 'lookup "free variable")]
+   [(cons b rst-env) (cond
+                       [(symbol=? n (bind-name b))
+                        (bind-location b)]
+                       [else (lookup n rst-env)])]))
+
+(module+ test
+  (test/exn (lookup 'x mt-env)
+            "free variable")
+  (test (lookup 'x (extend-env (bind 'x 8) mt-env))
+        8)
+  (test (lookup 'x (extend-env
+                    (bind 'x 9)
+                    (extend-env (bind 'x 8) mt-env)))
+        9)
+  (test (lookup 'y (extend-env
+                    (bind 'x 9)
+                    (extend-env (bind 'y 8) mt-env)))
+        8))
+  
+;; store operations ----------------------------------------
+
+(define (new-loc [sto : Store]) : Location
+  (+ 1 (max-address sto)))
+
+(define (max-address [sto : Store]) : Location
+  (type-case (Listof Storage) sto
+   [empty 0]
+   [(cons c rst-sto) (max (cell-location c)
+                          (max-address rst-sto))]))
+
+(define (fetch [l : Location] [sto : Store]) : Value
+  (type-case (Listof Storage) sto
+   [empty (error 'interp "unallocated location")]
+   [(cons c rst-sto) (if (equal? l (cell-location c))
+                         (cell-val c)
+                         (fetch l rst-sto))]))
+
+(module+ test
+  (test (max-address mt-store)
+        0)
+  (test (max-address (override-store (cell 2 (numV 9))
+                                     mt-store))
+        2)
+  
+  (test (fetch 2 (override-store (cell 2 (numV 9))
+                                 mt-store))
+        (numV 9))
+  (test (fetch 2 (override-store (cell 2 (numV 10))
+                                 (override-store (cell 2 (numV 9))
+                                                 mt-store)))
+        (numV 10))
+  (test (fetch 3 (override-store (cell 2 (numV 10))
+                                 (override-store (cell 3 (numV 9))
+                                                 mt-store)))
+        (numV 9))
+  (test/exn (fetch 2 mt-store)
+            "unallocated location"))
+
+______________
+
+__Notes__
+
+Variable and box implementation have the same effectivenss.
+
+Call by reference - you peek into the store and and dont recuresuively call interp on it so its is a bit suspicous.
+
+
+Encodings **********************************************************
+
+__Class Demo__
+
+______________
+
+__Notes__
+
+Syntactic Sugar - makes programs easier to read but the construct can be implemented using existing constructs
+
+Syntacitic sugar and library extensions are both forms of encoding.
+
+We are interested in identifying constructs that are fundemetally expressive in a language and what is syntactic sugar (construct made using other constructs).
+
+Alonzo Church
+  lambda calculas
+  Church numerals
+
+
+
+Encoding Recursion **********************************************************
+
+__Class Demo__
+
+#lang plait #:untyped
+
+;;1- Using (let ...) implement `len function recursively, which takes a list and returns its length
+;;2- implement `sum-l function recursively, which takes a list and returns the summation of all its elements
+
+
+#;(let ([len (lambda (l)
+             (type-case (Listof 'x) l
+               (empty 0)
+               ((cons fst rst)
+                (+ 1 (len rst)))))])
+  (len (list 1 2 3)))
+
+;; implement the same code using (if ...) instead of (type-case ...)
+;; The following is not working because the binding in let is not known on the rhs.
+#;(let ([len (lambda (l)
+             (if (empty? l)
+                 0
+                (+ 1 (len (rest l)))))])
+  (len (list 1 2 3)))
+
+;; pass the function to itself as an arg, so that it is known in the lambda body.
+#;(let ([lenX (lambda (lenX l)
+             (if (empty? l)
+                 0
+                 (+ 1 (lenX lenX (rest l)))))])
+  (lenX lenX (list 1 2 3)))
+
+;; the original len definition is the word len, so wrap the above (let ...) in a (lambda ...) and bind it to the word len.
+#;(let ([len (lambda (l)
+             (let ([lenX (lambda (lenX l)
+                           (if (empty? l)
+                               0
+                               (+ 1 (lenX lenX (rest l)))))])
+               (lenX lenX l)))])
+  (len (list 1 2 3)))
+
+;; curry only lenX => encode 2 arg lambda as 1 arg lambdas
+#;(let ([len
+       (lambda (l)
+             (let ([lenX
+                    (lambda (lenX)
+                           (lambda (l)
+                             (if (empty? l)
+                                 0
+                                 (+ 1 ((lenX lenX) (rest l))))))])
+               ((lenX lenX) l)))])
+  (len (list 1 2 3)))
+
+;; Simplify by removinf the first (lambda (l) ...)
+#;(let ([len
+       (let ([lenX
+              (lambda (lenX)
+                (lambda (l)
+                  (if (empty? l)
+                      0
+                      (+ 1 ((lenX lenX) (rest l))))))])
+         (lenX lenX))])
+(len (list 1 2 3)))
+
+;; almost the original len, except that instead of (len ...) we have (lenX lenX) => bind (lenX lenX) to the word len, but
+;; the self-application (lenX lenX) at (let ([len (letX letX)]) ...) will be evaluated always, which makes an infinite loop.
+;; Whereas, previously we had the self-application only in the else branch.
+#;(let ([len
+       (let ([lenX
+              (lambda (lenX)
+                (let ([len (lenX lenX)])
+                  (lambda (l)
+                    (if (empty? l)
+                        0
+                        (+ 1 (len (rest l)))))))])
+         (lenX lenX))])
+(len (list 1 2 3)))
+
+;; To fix the infinit loop caused by binding the self-application to len => delay its evaluation by wraping it in a lambda
+(let ([len
+       (let ([lenX
+              (lambda (lenX)
+                (let ([len (lambda (n)
+                             ((lenX lenX) n))])
+                  (lambda (l)
+                    (if (empty? l)
+                        0
+                        (+ 1 (len (rest l)))))))])
+         (lenX lenX))])
+(len (list 1 2 3)))
+
+;`sum-l
+(let ([sum-l
+       (let ([sumX
+              (lambda (sumX)
+                (let ([sum-l (lambda (n)
+                               ((sumX sumX) n))])
+                  (lambda (l)
+                    (if (empty? l)
+                        0
+                        (+ (first l) (sum-l (rest l)))))))])
+         (sumX sumX))])
+  (sum-l (list 1 2 3)))
+
+
+
+
+
+
+
+
+
+
+
+(define-type Value
+  (numV [n : Number])
+  (closV [arg : Symbol]
+         [body : Exp]
+         [env : Env]))
+
+(define-type Exp
+  (numE [n : Number])
+  (idE [s : Symbol])
+  (plusE [l : Exp] 
+         [r : Exp])
+  (lamE [n : Symbol]
+        [body : Exp])
+  (appE [fun : Exp]
+        [arg : Exp])
+  (if0E [tst : Exp]
+        [thn : Exp]
+        [els : Exp]))
+
+(define-type Binding
+  (bind [name : Symbol]
+        [val : Value]))
+
+(define-type-alias Env (Listof Binding))
+
+(define mt-env empty)
+(define extend-env cons)
+
+(module+ test
+  (print-only-errors #t))
+
+;; parse ----------------------------------------
+(define (parse [s : S-Exp]) : Exp
+  (cond
+    ;; Encoding lists (in terms of pairs):
+    [(s-exp-match? `empty s)
+     (parse `{pair 0 0})]
+    [(s-exp-match? `{empty? ANY} s)
+     (let ([input-list-s (second (s-exp->list s))])
+       (parse `{fst ,input-list-s}))]
+    [(s-exp-match? `{cons? ANY} s)
+     (let ([input-list-s (second (s-exp->list s))])
+       (parse `{if0 {fst ,input-list-s} 1 0}))]
+    [(s-exp-match? `{first ANY} s)
+     (let ([input-list-s (second (s-exp->list s))])
+       (parse `{fst {snd ,input-list-s}}))]
+    [(s-exp-match? `{rest ANY} s)
+     (let ([input-list-s (second (s-exp->list s))])
+       (parse `{snd {snd ,input-list-s}}))]
+    [(s-exp-match? `{cons ANY ANY} s)
+     (let ([first-s (second (s-exp->list s))]
+           [second-s (third (s-exp->list s))])
+       (parse `{pair 1 {pair ,first-s ,second-s}}))]
+    ;; Encoding pairs (in terms of lambdas):
+    [(s-exp-match? `{pair ANY ANY} s)
+     (let ([first-s (second (s-exp->list s))]
+           [second-s (third (s-exp->list s))])
+       (parse `{lambda {s} {if0 s ,first-s ,second-s}}))]
+    [(s-exp-match? `{fst ANY} s)
+     (let ([inputPair (second (s-exp->list s))])
+       (parse `{,inputPair 0}))]
+    [(s-exp-match? `{snd ANY} s)
+     (let ([inputPair (second (s-exp->list s))])
+       (parse `{,inputPair 1}))]
+    ;; Encoding booleans (in terms of lambdas):
+    [(s-exp-match? `false s) (parse `{lambda {x} {lambda {y} y}})]
+    [(s-exp-match? `true s)  (parse `{lambda {x} {lambda {y} x}})]
+    [(s-exp-match? `{if ANY ANY ANY} s)
+     (let ([tst-s (second (s-exp->list s))]
+           [thn-s (third (s-exp->list s))]
+           [els-s (fourth (s-exp->list s))])
+       (parse `{{,tst-s ,thn-s} ,els-s})
+       #;
+       (appE (appE (parse tst-s)
+                   (parse thn-s))
+             (parse els-s)))]
+    ;; Original forms
+    [(s-exp-match? `NUMBER s) (numE (s-exp->number s))]
+    [(s-exp-match? `SYMBOL s) (idE (s-exp->symbol s))]
+    [(s-exp-match? `{+ ANY ANY} s)
+     (plusE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{let {[SYMBOL ANY]} ANY} s)
+     (let ([bs (s-exp->list (first
+                             (s-exp->list (second
+                                           (s-exp->list s)))))])
+       (appE (lamE (s-exp->symbol (first bs))
+                   (parse (third (s-exp->list s))))
+             (parse (second bs))))]
+    [(s-exp-match? `{lambda {SYMBOL} ANY} s)
+     (lamE (s-exp->symbol (first (s-exp->list 
+                                  (second (s-exp->list s)))))
+           (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{if0 ANY ANY ANY} s)
+     (if0E (parse (second (s-exp->list s)))
+           (parse (third (s-exp->list s)))
+           (parse (fourth (s-exp->list s))))]
+    [(s-exp-match? `{ANY ANY} s)
+     (appE (parse (first (s-exp->list s)))
+           (parse (second (s-exp->list s))))]
+    [else (error 'parse "invalid input")]))
+
+(module+ test
+  (test (parse `2)
+        (numE 2))
+  (test (parse `x) ; note: backquote instead of normal quote
+        (idE 'x))
+  (test (parse `{+ 2 1})
+        (plusE (numE 2) (numE 1)))
+  (test (parse `{+ {+ 3 4} 8})
+        (plusE (plusE (numE 3) (numE 4))
+               (numE 8)))
+  (test (parse `{let {[x {+ 1 2}]}
+                  y})
+        (appE (lamE 'x (idE 'y))
+              (plusE (numE 1) (numE 2))))
+  (test (parse `{lambda {x} 9})
+        (lamE 'x (numE 9)))
+  (test (parse `{if0 1 2 3})
+        (if0E (numE 1) (numE 2) (numE 3)))
+  (test (parse `{double 9})
+        (appE (idE 'double) (numE 9)))
+  (test/exn (parse `{{+ 1 2}})
+            "invalid input"))
+
+;; interp ----------------------------------------
+(define (interp [a : Exp] [env : Env]) : Value
+  (type-case Exp a
+    [(numE n) (numV n)]
+    [(idE s) (lookup s env)]
+    [(plusE l r) (num+ (interp l env) (interp r env))]
+    [(lamE n body)
+     (closV n body env)]
+    [(appE fun arg) (type-case Value (interp fun env)
+                      [(closV n body c-env)
+                       (interp body
+                               (extend-env
+                                (bind n
+                                      (interp arg env))
+                                c-env))]
+                      [else (error 'interp "not a function")])]
+    [(if0E tst thn els)
+     (interp (if (num-zero? (interp tst env))
+                 thn
+                 els)
+             env)]))
+
+(module+ test
+  (test (interp (parse `2) mt-env)
+        (numV 2))
+  (test/exn (interp (parse `x) mt-env)
+            "free variable")
+  (test (interp (parse `x) 
+                (extend-env (bind 'x (numV 9)) mt-env))
+        (numV 9))
+  (test (interp (parse `{+ 2 1}) mt-env)
+        (numV 3))
+  (test (interp (parse `{+ {+ 2 3} {+ 5 8}})
+                mt-env)
+        (numV 18))
+  (test (interp (parse `{lambda {x} {+ x x}})
+                mt-env)
+        (closV 'x (plusE (idE 'x) (idE 'x)) mt-env))
+  (test (interp (parse `{let {[x 5]}
+                          {+ x x}})
+                mt-env)
+        (numV 10))
+  (test (interp (parse `{let {[x 5]}
+                          {let {[x {+ 1 x}]}
+                            {+ x x}}})
+                mt-env)
+        (numV 12))
+  (test (interp (parse `{let {[x 5]}
+                          {let {[y 6]}
+                            x}})
+                mt-env)
+        (numV 5))
+  (test (interp (parse `{{lambda {x} {+ x x}} 8})
+                mt-env)
+        (numV 16))
+  
+  (test (interp (parse `{if0 0 2 3})
+                mt-env)
+        (numV 2))
+  (test (interp (parse `{if0 1 2 3})
+                mt-env)
+        (numV 3))
+
+  (test/exn (interp (parse `{1 2}) mt-env)
+            "not a function")
+  (test/exn (interp (parse `{+ 1 {lambda {x} x}}) mt-env)
+            "not a number")
+  (test/exn (interp (parse `{if0 {lambda {x} x} 2 3})
+                    mt-env)
+            "not a number")
+  (test/exn (interp (parse `{let {[bad {lambda {x} {+ x y}}]}
+                              {let {[y 5]}
+                                {bad 2}}})
+                    mt-env)
+            "free variable"))
+
+;; num+ ----------------------------------------
+(define (num-op [op : (Number Number -> Number)] [l : Value] [r : Value]) : Value
+  (cond
+   [(and (numV? l) (numV? r))
+    (numV (op (numV-n l) (numV-n r)))]
+   [else
+    (error 'interp "not a number")]))
+(define (num+ [l : Value] [r : Value]) : Value
+  (num-op + l r))
+(define (num-zero? [v : Value]) : Boolean
+  (type-case Value v
+    [(numV n) (zero? n)]
+    [else (error 'interp "not a number")]))
+
+(module+ test
+  (test (num+ (numV 1) (numV 2))
+        (numV 3))
+  (test (num-zero? (numV 0))
+        #t)
+  (test (num-zero? (numV 1))
+        #f))
+
+;; lookup ----------------------------------------
+(define (lookup [n : Symbol] [env : Env]) : Value
+  (type-case (Listof Binding) env
+   [empty (error 'lookup "free variable")]
+   [(cons b rst-env) (cond
+                       [(symbol=? n (bind-name b))
+                        (bind-val b)]
+                       [else (lookup n rst-env)])]))
+
+(module+ test
+  (test/exn (lookup 'x mt-env)
+            "free variable")
+  (test (lookup 'x (extend-env (bind 'x (numV 8)) mt-env))
+        (numV 8))
+  (test (lookup 'x (extend-env
+                    (bind 'x (numV 9))
+                    (extend-env (bind 'x (numV 8)) mt-env)))
+        (numV 9))
+  (test (lookup 'y (extend-env
+                    (bind 'x (numV 9))
+                    (extend-env (bind 'y (numV 8)) mt-env)))
+        (numV 8)))
+
+;; ----------------------------------------
+;; Some encoding tests
+
+(module+ test
+  (test (interp (parse `{if true 1 2})
+                mt-env)
+        (numV 1))
+  (test (interp (parse `{if false 1 2})
+                mt-env)
+        (numV 2))
+
+  (test (interp (parse `{fst {pair 3 4}})
+                mt-env)
+        (numV 3))
+  (test (interp (parse `{snd {pair 3 4}})
+                mt-env)
+        (numV 4))
+
+  (test (interp (parse `{empty? empty})
+                mt-env)
+        (numV 0))
+  (test (interp (parse `{empty? {cons 1 empty}})
+                mt-env)
+        (numV 1))
+  (test (interp (parse `{cons? {cons 1 empty}})
+                mt-env)
+        (numV 0))
+  (test (interp (parse `{cons? empty})
+                mt-env)
+        (numV 1))
+  (test (interp (parse `{first {rest {cons 10 {cons 20 empty}}}})
+                mt-env)
+        (numV 20))
+  (test (interp (parse `{empty? {rest {rest {cons 10 {cons 20 empty}}}}})
+                mt-env)
+        (numV 0)))
+______________
+
+__Notes__
+
+Plait local keyword binds both in the body expression and in the binding expression
+
+let only binds in the body so it does not work for recursion
+
+letrec
+
+mk-rec is known as a Y cominator or fixpoint operator
+
+Values bound by let dont exits until the body of the let.
+
+letrec lets you see all bindings in all clauses. 
+
+
+Recursion **********************************************************
+
+__Class Demo__
+
+#lang plait
+
+;; Start with "letrec-ubi.rkt"
+
+;; Generalize `letrec` to have multiple binding clauses
+
+;; Make `letrec` act like `shared` in the special case of
+;; a right-hand side that refers immediately in `box` back
+;; to the identifier being defined
+
+(define-type Value
+  (numV [n : Number])
+  (closV [arg : Symbol]
+         [body : Exp]
+         [env : Env])
+  (boxV [b : (Boxof Value)]))
+
+(define-type Exp
+  (numE [n : Number])
+  (idE [s : Symbol])
+  (plusE [l : Exp] 
+         [r : Exp])
+  (multE [l : Exp]
+         [r : Exp])
+  (lamE [n : Symbol]
+        [body : Exp])
+  (appE [fun : Exp]
+        [arg : Exp])
+  (if0E [tst : Exp]
+        [thn : Exp]
+        [els : Exp])
+  (boxE [itm : Exp])
+  (unboxE [b : Exp])
+  (letrecE [n : (Listof Symbol)] 
+           [rhs : (Listof Exp)]
+           [body : Exp]))
+
+(define-type Binding
+  (bind [name : Symbol]
+        [val : (Boxof (Optionof Value))]))
+
+(define-type-alias Env (Listof Binding))
+
+(define mt-env empty)
+(define extend-env cons)
+
+(module+ test
+  (print-only-errors #t))
+
+;; parse ----------------------------------------
+(define (parse [s : S-Exp]) : Exp
+  (cond
+    [(s-exp-match? `NUMBER s) (numE (s-exp->number s))]
+    [(s-exp-match? `SYMBOL s) (idE (s-exp->symbol s))]
+    [(s-exp-match? `{box ANY} s)
+     (boxE (parse (second (s-exp->list s))))]
+    [(s-exp-match? `{unbox ANY} s)
+     (unboxE (parse (second (s-exp->list s))))]
+    [(s-exp-match? `{+ ANY ANY} s)
+     (plusE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{* ANY ANY} s)
+     (multE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{let {[SYMBOL ANY]} ANY} s)
+     (let ([bs (s-exp->list (first
+                             (s-exp->list (second
+                                           (s-exp->list s)))))])
+       (appE (lamE (s-exp->symbol (first bs))
+                   (parse (third (s-exp->list s))))
+             (parse (second bs))))]
+    [(s-exp-match? `{lambda {SYMBOL} ANY} s)
+     (lamE (s-exp->symbol (first (s-exp->list 
+                                  (second (s-exp->list s)))))
+           (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{letrec {[SYMBOL ANY] ...} ANY} s)
+     (let ([clauses (s-exp->list (second
+                                  (s-exp->list s)))])       
+       (letrecE (map (lambda (clause)
+                       (s-exp->symbol (first (s-exp->list clause))))
+                     clauses)
+                (map (lambda (clause)
+                       (parse (second (s-exp->list clause))))
+                     clauses)
+                (parse (third (s-exp->list s)))))]
+    [(s-exp-match? `{if0 ANY ANY ANY} s)
+     (if0E (parse (second (s-exp->list s)))
+           (parse (third (s-exp->list s)))
+           (parse (fourth (s-exp->list s))))]
+    [(s-exp-match? `{ANY ANY} s)
+     (appE (parse (first (s-exp->list s)))
+           (parse (second (s-exp->list s))))]
+    [else (error 'parse "invalid input")]))
+
+(module+ test
+  (test (parse `2)
+        (numE 2))
+  (test (parse `x) ; note: backquote instead of normal quote
+        (idE 'x))
+  (test (parse `{+ 2 1})
+        (plusE (numE 2) (numE 1)))
+  (test (parse `{* 3 4})
+        (multE (numE 3) (numE 4)))
+  (test (parse `{+ {* 3 4} 8})
+        (plusE (multE (numE 3) (numE 4))
+               (numE 8)))
+  (test (parse `{lambda {x} 9})
+        (lamE 'x (numE 9)))
+  (test (parse `{let {[x {+ 1 2}]}
+                  y})
+        (appE (lamE 'x (idE 'y))
+              (plusE (numE 1) (numE 2))))
+  (test (parse `{if0 1 2 3})
+        (if0E (numE 1) (numE 2) (numE 3)))
+  (test (parse `{letrec {[x {+ 1 2}]}
+                  y})
+        (letrecE (list 'x)
+                 (list (plusE (numE 1) (numE 2)))
+                 (idE 'y)))
+  (test (parse `{double 9})
+        (appE (idE 'double) (numE 9)))
+  (test/exn (parse `{{+ 1 2}})
+            "invalid input"))
+
+;; interp ----------------------------------------
+(define (interp [a : Exp] [env : Env]) : Value
+  (type-case Exp a
+    [(numE n) (numV n)]
+    [(idE s) (lookup s env)]
+    [(plusE l r) (num+ (interp l env) (interp r env))]
+    [(multE l r) (num* (interp l env) (interp r env))]
+    [(boxE e) (boxV (box (interp e env)))]
+    [(unboxE b)
+     (type-case Value (interp b env)
+       [(boxV v) (unbox v)]
+       [else (error 'interp "not a box")])]
+    [(lamE n body) (closV n body env)]
+    [(appE fun arg) (type-case Value (interp fun env)
+                      [(closV n body c-env)
+                             (let ([val (interp arg env)])
+                               (interp body
+                                       (extend-env
+                                        (bind n (box (some val)))
+                                        c-env)))]
+                      [else (error 'interp "not a function")])]
+    [(if0E tst thn els)
+     (type-case Value (interp tst env)
+       [(numV n) (if (zero? n)
+                     (interp thn env)
+                     (interp els env))]
+       [else (error 'interp "not a number")])]
+    [(letrecE ns rhss body)
+     (local [(define (general-letrec)
+               (let ([bs (map (lambda (n)
+                                (box (none)))
+                              ns)])
+                 (let ([new-env (append
+                                 (map2 bind
+                                       ns
+                                       bs)
+                                 env)])
+                   (begin
+                     (map2 (lambda (rhs b)
+                             (set-box! b (some (interp rhs new-env))))
+                           rhss
+                           bs)
+                     (interp body new-env)))))]
+       (cond
+         [(= 1 (length ns))
+          (type-case Exp (first rhss)
+            [(boxE e)
+             (type-case Exp e
+               [(idE n) (if (equal? n (first ns))
+                            ;; Make a box that refers to itself
+                            (let ([bx (box (numV 42))])
+                              (let ([b (boxV bx)])
+                                (begin
+                                  (set-box! bx b)
+                                  b)))
+                            (general-letrec))]
+               [else (general-letrec)])]
+            [else (general-letrec)])]
+         [else (general-letrec)]))]))
+
+(module+ test
+  (test (interp (parse `{letrec {[b (box b)]}
+                          {unbox b}})
+                mt-env)
+        #;
+        (shared ([b (boxV (box b))])
+          b)
+        ;; #0=(boxV (box #0#))
+        (let ([bx (box (numV 42))])
+          (let ([b (boxV bx)])
+            (begin
+              (set-box! bx b)
+              b))))
+  (test (interp (parse `{letrec {[x 5]
+                                 [y {+ x 2}]}
+                          {+ x y}})
+                mt-env)
+        (numV 12))
+
+  (test (interp (parse `{letrec {[x {box 5}]}
+                          x})
+                mt-env)
+        (boxV (box (numV 5))))
+  (test (interp (parse `{let {[y 8]}
+                          {letrec {[x {box y}]}
+                            x}})
+                mt-env)
+        (boxV (box (numV 8))))
+  
+  (test (interp (parse `(letrec ([is-odd (lambda (n)
+                                           (if0 n
+                                                0
+                                               (is-even (+ n -1))))]
+                                 [is-even (lambda (n)
+                                            (if0 n
+                                                 1
+                                                (is-odd (+ n -1))))])
+                          (is-odd 5)))
+                mt-env)
+        (numV 1))
+
+  (test (interp (parse `{unbox {box 0}})
+                mt-env)
+        (numV 0))
+  (test/exn (interp (parse `{unbox 0})
+                    mt-env)
+            "not a box")
+                       
+  (test (interp (parse `2) mt-env)
+        (numV 2))
+  (test/exn (interp (parse `x) mt-env)
+            "free variable")
+  (test (interp (parse `x) 
+                (extend-env (bind 'x (box (some (numV 9)))) mt-env))
+        (numV 9))
+  (test (interp (parse `{+ 2 1}) mt-env)
+        (numV 3))
+  (test (interp (parse `{* 2 1}) mt-env)
+        (numV 2))
+  (test (interp (parse `{+ {* 2 3} {+ 5 8}})
+                mt-env)
+        (numV 19))
+  (test (interp (parse `{lambda {x} {+ x x}})
+                mt-env)
+        (closV 'x (plusE (idE 'x) (idE 'x)) mt-env))
+  (test (interp (parse `{let {[x 5]}
+                          {+ x x}})
+                mt-env)
+        (numV 10))
+  (test (interp (parse `{let {[x 5]}
+                          {let {[x {+ 1 x}]}
+                            {+ x x}}})
+                mt-env)
+        (numV 12))
+  (test (interp (parse `{let {[x 5]}
+                          {let {[y 6]}
+                            x}})
+                mt-env)
+        (numV 5))
+  (test (interp (parse `{{lambda {x} {+ x x}} 8})
+                mt-env)
+        (numV 16))
+  (test (interp (parse `{if0 1 2 3})
+                mt-env)
+        (numV 3))
+  (test (interp (parse `{if0 0 2 3})
+                mt-env)
+        (numV 2))
+
+  (test (interp (parse `{letrec {[x 5]}
+                          {+ x x}})
+                mt-env)
+        (numV 10))
+
+  (test (interp (parse `{letrec {[fac
+                                  {lambda {x}
+                                    {if0 x
+                                         1
+                                         {* x {fac {+ x -1}}}}}]}
+                          {fac 5}})
+                mt-env)
+        (numV 120))
+
+  (test/exn (interp (parse `{1 2}) mt-env)
+            "not a function")
+  (test/exn (interp (parse `{+ 1 {lambda {x} x}}) mt-env)
+            "not a number")
+  (test/exn (interp (parse `{let {[bad {lambda {x} {+ x y}}]}
+                              {let {[y 5]}
+                                {bad 2}}})
+                    mt-env)
+            "free variable")
+  (test/exn (interp (parse `{if0 {lambda {x} x} 1 2})
+                    mt-env)
+            "not a number")
+
+  (test/exn (interp (parse `{letrec {[x x]} x})
+                    mt-env)
+            "use before initialization"))
+
+;; num+ and num* ----------------------------------------
+(define (num-op [op : (Number Number -> Number)] [l : Value] [r : Value]) : Value
+  (cond
+   [(and (numV? l) (numV? r))
+    (numV (op (numV-n l) (numV-n r)))]
+   [else
+    (error 'interp "not a number")]))
+(define (num+ [l : Value] [r : Value]) : Value
+  (num-op + l r))
+(define (num* [l : Value] [r : Value]) : Value
+  (num-op * l r))
+
+(module+ test
+  (test (num+ (numV 1) (numV 2))
+        (numV 3))
+  (test (num* (numV 2) (numV 3))
+        (numV 6)))
+
+;; lookup ----------------------------------------
+(define (lookup [n : Symbol] [env : Env]) : Value
+  (type-case (Listof Binding) env
+   [empty (error 'lookup "free variable")]
+   [(cons b rst-env) (cond
+                       [(symbol=? n (bind-name b))
+                        (type-case (Optionof Value) (unbox (bind-val b))
+                          [(none) (error 'lookup "use before initialization")]
+                          [(some v) v])]
+                       [else (lookup n rst-env)])]))
+
+(module+ test
+  (test/exn (lookup 'x mt-env)
+            "free variable")
+  (test (lookup 'x (extend-env (bind 'x (box (some (numV 8)))) mt-env))
+        (numV 8))
+  (test (lookup 'x (extend-env
+                    (bind 'x (box (some (numV 9))))
+                    (extend-env (bind 'x (box (some (numV 8)))) mt-env)))
+        (numV 9))
+  (test (lookup 'y (extend-env
+                    (bind 'x (box (some (numV 9))))
+                    (extend-env (bind 'y (box (some (numV 8)))) mt-env)))
+        (numV 8))
+  (test/exn (lookup 'x (extend-env (bind 'x (box (none))) mt-env))
+            "use before initialization"))
+______________
+
+__Notes__
+
+
+
+Lazy Evaluation **********************************************************
+
+
+__Class Demo__
+
+#lang plait
+
+;; Start with "more-lazy.rkt", and add boxes:
+;;   {box <expr>}
+;;   {unbox <expr>}
+
+;; Part of the challenge here was writing a test
+;; case that returns a box containing a forced value.
+
+(define-type Value
+  (numV [n : Number])
+  (closV [arg : Symbol]
+         [body : Exp]
+         [env : Env])
+  (boxV [b : Thunk]))
+
+(define-type Thunk
+  (delay [body : Exp]
+         [env : Env]
+         [done : (Boxof (Optionof Value))]))
+
+(define-type Exp
+  (numE [n : Number])
+  (idE [s : Symbol])
+  (plusE [l : Exp] 
+         [r : Exp])
+  (multE [l : Exp]
+         [r : Exp])
+  (lamE [n : Symbol]
+        [body : Exp])
+  (appE [fun : Exp]
+        [arg : Exp])
+  (boxE [b : Exp])
+  (unboxE [ub : Exp]))
+
+(define-type Binding
+  (bind [name : Symbol]
+        [val : Thunk]))
+
+(define-type-alias Env (Listof Binding))
+
+(define mt-env empty)
+(define extend-env cons)
+
+(module+ test
+  (print-only-errors #t))
+
+;; parse ----------------------------------------
+(define (parse [s : S-Exp]) : Exp
+  (cond
+    [(s-exp-match? `NUMBER s) (numE (s-exp->number s))]
+    [(s-exp-match? `SYMBOL s) (idE (s-exp->symbol s))]
+    [(s-exp-match? `{+ ANY ANY} s)
+     (plusE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{* ANY ANY} s)
+     (multE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{box ANY} s)
+     (boxE (parse (second (s-exp->list s))))]
+    [(s-exp-match? `{unbox ANY} s)
+     (unboxE (parse (second (s-exp->list s))))]
+    [(s-exp-match? `{let {[SYMBOL ANY]} ANY} s)
+     (let ([bs (s-exp->list (first
+                             (s-exp->list (second
+                                           (s-exp->list s)))))])
+       (appE (lamE (s-exp->symbol (first bs))
+                   (parse (third (s-exp->list s))))
+             (parse (second bs))))]
+    [(s-exp-match? `{lambda {SYMBOL} ANY} s)
+     (lamE (s-exp->symbol (first (s-exp->list 
+                                  (second (s-exp->list s)))))
+           (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{ANY ANY} s)
+     (appE (parse (first (s-exp->list s)))
+           (parse (second (s-exp->list s))))]
+    [else (error 'parse "invalid input")]))
+
+(module+ test
+  (test (parse `2)
+        (numE 2))
+  (test (parse `x) ; note: backquote instead of normal quote
+        (idE 'x))
+  (test (parse `{+ 2 1})
+        (plusE (numE 2) (numE 1)))
+  (test (parse `{* 3 4})
+        (multE (numE 3) (numE 4)))
+  (test (parse `{+ {* 3 4} 8})
+        (plusE (multE (numE 3) (numE 4))
+               (numE 8)))
+  (test (parse `{let {[x {+ 1 2}]}
+                  y})
+        (appE (lamE 'x (idE 'y))
+              (plusE (numE 1) (numE 2))))
+  (test (parse `{lambda {x} 9})
+        (lamE 'x (numE 9)))
+  (test (parse `{double 9})
+        (appE (idE 'double) (numE 9)))
+  (test/exn (parse `{{+ 1 2}})
+            "invalid input"))
+
+;; interp ----------------------------------------
+(define (interp [a : Exp] [env : Env]) : Value
+  (type-case Exp a
+    [(numE n) (numV n)]
+    [(idE s) (force (lookup s env))]
+    [(plusE l r) (num+ (interp l env)
+                       (interp r env))]
+    [(multE l r) (num* (interp l env)
+                       (interp r env))]
+    [(lamE n body) (closV n body env)]
+    [(boxE b) (boxV (delay b env (box (none))))]
+    [(unboxE ub)
+     (type-case Value (interp ub env)
+       [(boxV t) (force t)]
+       [else (error 'interp "not a box")])]
+    [(appE fun arg) (type-case Value (interp fun env)
+                      [(closV n body c-env)
+                             (interp body
+                                     (extend-env
+                                      (bind n (delay arg env (box (none))))
+                                      c-env))]
+                      [else (error 'interp "not a function")])]))
+
+(module+ test
+  (test (interp (parse `{let {[b {box 5}]}
+                          {unbox b}})
+                mt-env)
+        (numV 5))
+  (test/exn (interp (parse `{let {[b {box [1 2]}]}
+                          {unbox b}})
+                mt-env)
+        "not a function")
+  (test (interp (parse `{let {[b {box [1 2]}]}
+                          b})
+                mt-env)
+        (boxV (delay (appE (numE 1) (numE 2))
+                     mt-env
+                     (box (none)))))
+  ;; Doesn't work:
+  #;
+  (test (interp (parse `{let {[b {box {+ 1 2}}]}
+                          {let {[dummy {unbox b}]}
+                            b}})
+                mt-env)
+        (boxV (delay (plusE (numE 1) (numE 2))
+                     mt-env
+                     (box (some (numV 3))))))
+  (test (interp (parse `{let {[b {box {lambda {x} x}}]}
+                          {{unbox b}
+                           b}})
+                mt-env)
+        (boxV (delay (parse `{lambda {x} x})
+                     mt-env
+                     (box (some (closV 'x (idE 'x) mt-env))))))
+  (test (interp (parse `2) mt-env)
+        (numV 2))
+  (test/exn (interp (parse `x) mt-env)
+            "free variable")
+  (test (interp (parse `x) 
+                (extend-env (bind 'x (delay (numE 9) mt-env (box (none)))) mt-env))
+        (numV 9))
+  (test (interp (parse `{+ 2 1}) mt-env)
+        (numV 3))
+  (test (interp (parse `{* 2 1}) mt-env)
+        (numV 2))
+  (test (interp (parse `{+ {* 2 3} {+ 5 8}})
+                mt-env)
+        (numV 19))
+  (test (interp (parse `{lambda {x} {+ x x}})
+                mt-env)
+        (closV 'x (plusE (idE 'x) (idE 'x)) mt-env))
+  (test (interp (parse `{let {[x 5]}
+                          {+ x x}})
+                mt-env)
+        (numV 10))
+  (test (interp (parse `{let {[x 5]}
+                          {let {[x {+ 1 x}]}
+                            {+ x x}}})
+                mt-env)
+        (numV 12))
+  (test (interp (parse `{let {[x 5]}
+                         {let {[y 6]}
+                          x}})
+                mt-env)
+        (numV 5))
+  (test (interp (parse `{{lambda {x} {+ x x}} 8})
+                mt-env)
+        (numV 16))
+
+  (test (interp (parse `{{lambda {x} 5} {1 2}})
+                 mt-env)
+        (numV 5))
+
+  (test/exn (interp (parse `{1 2}) mt-env)
+            "not a function")
+  (test/exn (interp (parse `{+ 1 {lambda {x} x}}) mt-env)
+            "not a number")
+  (test/exn (interp (parse `{let {[bad {lambda {x} {+ x y}}]}
+                              {let {[y 5]}
+                                {bad 2}}})
+                    mt-env)
+            "free variable")
+
+  #;
+  (time (interp (parse '{let {[x2 {lambda {n} {+ n n}}]}
+                          {let {[x4 {lambda {n} {x2 {x2 n}}}]}
+                            {let {[x16 {lambda {n} {x4 {x4 n}}}]}
+                              {let {[x256 {lambda {n} {x16 {x16 n}}}]}
+                                {let {[x65536 {lambda {n} {x256 {x256 n}}}]}
+                                  {x65536 1}}}}}})
+                mt-env)))
+
+;; force ----------------------------------------
+
+(define (force [t : Thunk]) : Value
+  (type-case Thunk t
+    [(delay b e d) (type-case (Optionof Value) (unbox d)
+                     [(none )
+                           (let ([v (interp b e)])
+                             (begin
+                               (set-box! d (some v))
+                               v))]
+                     [(some v) v])]))
+
+(module+ test
+  (test (force (delay (numE 8) mt-env (box (none))))
+        (numV 8))
+  (test (let ([v (delay (numE 8) mt-env (box (none)))])
+          (begin
+            (force v)
+            (force v)))
+        (numV 8))
+  (test (force (delay (numE 8) mt-env (box (some (numV 9)))))
+        (numV 9))
+  (test (force (delay (idE 'x)
+                      (extend-env (bind 'x (delay (numE 9) mt-env (box (none))))
+                                  mt-env)
+                      (box (none))))
+        (numV 9)))
+
+;; num+ and num* ----------------------------------------
+(define (num-op [op : (Number Number -> Number)] [l : Value] [r : Value]) : Value
+  (cond
+   [(and (numV? l) (numV? r))
+    (numV (op (numV-n l) (numV-n r)))]
+   [else
+    (error 'interp "not a number")]))
+(define (num+ [l : Value] [r : Value]) : Value
+  (num-op + l r))
+(define (num* [l : Value] [r : Value]) : Value
+  (num-op * l r))
+
+(module+ test
+  (test (num+ (numV 1) (numV 2))
+        (numV 3))
+  (test (num* (numV 2) (numV 3))
+        (numV 6)))
+
+;; lookup ----------------------------------------
+(define (lookup [n : Symbol] [env : Env]) : Thunk
+  (type-case (Listof Binding) env
+   [empty (error 'lookup "free variable")]
+   [(cons b rst-env) (cond
+                       [(symbol=? n (bind-name b))
+                        (bind-val b)]
+                       [else (lookup n rst-env)])]))
+
+(module+ test
+  (test/exn (lookup 'x mt-env)
+            "free variable")
+  (test (lookup 'x (extend-env (bind 'x (delay (numE 8) mt-env (box (none)))) mt-env))
+        (delay (numE 8) mt-env (box (none))))
+  (test (lookup 'x (extend-env
+                    (bind 'x (delay (numE 9) mt-env (box (none))))
+                    (extend-env (bind 'x (delay (numE 8) mt-env (box (none)))) mt-env)))
+        (delay (numE 9) mt-env (box (none))))
+  (test (lookup 'y (extend-env
+                    (bind 'x (delay (numE 9) mt-env (box (none))))
+                    (extend-env (bind 'y (delay (numE 8) mt-env (box (none)))) mt-env)))
+        (delay (numE 8) mt-env (box (none)))))
+______________
+
+__Notes__
+
+Eager evaluation: languages like Plait, Java, C
+	- an expression is evaluated when it is encountered.
+	- function parameters are evaluated before the body of the function.
+
+Lazy evaluation: languages like Hascal, Clean
+	-an expression is evaluated only if its result is needed.
+
+ex.
+(define (f x)
+	(+ x 1))
+
+(f (+ 3 4)) ; eager -> (f 7) -> (+ 7 1) -> 8
+			; lazy  -> (+ (+ 3 4) 1) -> (+ 7 1) -> 8
+ 
+
+call-by-value -> means eager / ex. plait, java, c, python
+call-by-name  -> means lazy no chaching of results / ex. not practical. theoretical
+call-by-need  -> means lazy, with caching of results / ex. Haskell, Clean
+
+normal order -> lazy evaluation
+applicative order -> eager evaluation
+
+
+function postion needs to be evealuated.
+argument postion can be lazy.
+
+
+
+
+
+
+Continuations **********************************************************
+
+__Class Demo__
+
+
+______________
+
+__Notes__
+
+
+
+
+
+
+
+

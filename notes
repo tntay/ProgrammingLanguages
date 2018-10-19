@@ -17,6 +17,8 @@ Sections:
 - Recursion
 - Lazy Evaluation
 - Continuations
+- Errors, Exceptions, call/cc
+- Compilation
 
 
 
@@ -4209,10 +4211,784 @@ Continuations **********************************************************
 
 __Class Demo__
 
+#lang plait ;;;;;;;;;;;;;
+
+;; Start with lambda-k.rkt
+;;
+;; Add `pair`, `fst`, and `snd`
+
+(define-type Value
+  (numV [n : Number])
+  (closV [arg : Symbol]
+         [body : Exp]
+         [env : Env])
+  (pairV [a : Value]
+         [b : Value]))
+
+(define-type Exp
+  (numE [n : Number])
+  (idE [s : Symbol])
+  (plusE [l : Exp] 
+         [r : Exp])
+  (multE [l : Exp]
+         [r : Exp])
+  (lamE [n : Symbol]
+        [body : Exp])
+  (appE [fun : Exp]
+        [arg : Exp])
+  (pairE [a : Exp]
+         [b : Exp])
+  (fstE [exp : Exp])
+  (sndE [exp : Exp]))
+
+(define-type Binding
+  (bind [name : Symbol]
+        [val : Value]))
+
+(define-type-alias Env (Listof Binding))
+
+(define mt-env empty)
+(define extend-env cons)
+
+(define-type Cont
+  (doneK)
+  (plusSecondK [r : Exp]
+               [e : Env]
+               [k : Cont])
+  (doPlusK [v : Value]
+           [k : Cont])
+  (multSecondK [r : Exp]
+               [e : Env]
+               [k : Cont])
+  (doMultK [v : Value]
+           [k : Cont])
+  (appArgK [a : Exp]
+           [env : Env]
+           [k : Cont])
+  (doAppK [f : Value]
+          [k : Cont])
+  (pairSecondK [exp : Exp]
+               [env : Env]
+               [k : Cont])
+  (doPairK [a : Value]
+           [k : Cont])
+  (doFstK [k : Cont ])
+  (doSndK [k : Cont ]))
+
+(module+ test
+  (print-only-errors #t))
+
+;; parse ----------------------------------------
+(define (parse [s : S-Exp]) : Exp
+  (cond
+    [(s-exp-match? `NUMBER s) (numE (s-exp->number s))]
+    [(s-exp-match? `SYMBOL s) (idE (s-exp->symbol s))]
+    [(s-exp-match? `{+ ANY ANY} s)
+     (plusE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{* ANY ANY} s)
+     (multE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{pair ANY ANY} s)
+     (pairE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{fst ANY} s)
+     (fstE (parse (second (s-exp->list s))))]
+    [(s-exp-match? `{snd ANY} s)
+     (sndE (parse (second (s-exp->list s))))]
+    [(s-exp-match? `{let {[SYMBOL ANY]} ANY} s)
+     (let ([bs (s-exp->list (first
+                             (s-exp->list (second
+                                           (s-exp->list s)))))])
+       (appE (lamE (s-exp->symbol (first bs))
+                   (parse (third (s-exp->list s))))
+             (parse (second bs))))]
+    [(s-exp-match? `{lambda {SYMBOL} ANY} s)
+     (lamE (s-exp->symbol (first (s-exp->list 
+                                  (second (s-exp->list s)))))
+           (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{ANY ANY} s)
+     (appE (parse (first (s-exp->list s)))
+           (parse (second (s-exp->list s))))]
+    [else (error 'parse "invalid input")]))
+
+(module+ test
+  (test (parse `2)
+        (numE 2))
+  (test (parse `x)
+        (idE 'x))
+  (test (parse `{+ 2 1})
+        (plusE (numE 2) (numE 1)))
+  (test (parse `{* 3 4})
+        (multE (numE 3) (numE 4)))
+  (test (parse `{+ {* 3 4} 8})
+        (plusE (multE (numE 3) (numE 4))
+               (numE 8)))
+  (test (parse `{let {[x {+ 1 2}]}
+                  y})
+        (appE (lamE 'x (idE 'y))
+              (plusE (numE 1) (numE 2))))
+  (test (parse `{lambda {x} 9})
+        (lamE 'x (numE 9)))
+  (test (parse `{double 9})
+        (appE (idE 'double) (numE 9)))
+  (test/exn (parse `{{+ 1 2}})
+            "invalid input"))
+
+;; interp & continue ----------------------------------------
+(define (interp [a : Exp] [env : Env] [k : Cont]) : Value
+  (type-case Exp a
+    [(numE n) (continue k (numV n))]
+    [(idE s) (continue k (lookup s env))]
+    [(plusE l r) (interp l env
+                         (plusSecondK r env k))]
+    [(multE l r) (interp l env
+                         (multSecondK r env k))]
+    [(lamE n body)
+     (continue k (closV n body env))]
+    [(pairE a b) (interp a env (pairSecondK b env k))]
+    [(fstE e) (interp e env ( doFstK k))]
+    [(sndE e) (interp e env ( doSndK k))]
+                      
+    [(appE fun arg) (interp fun env
+                            (appArgK arg env k))]))
+
+(define (continue [k : Cont] [v : Value]) : Value
+  (type-case Cont k
+    [(doneK) v]
+    [(plusSecondK r env next-k)
+     (interp r env
+             (doPlusK v next-k))]
+    [(doPlusK v-l next-k)
+     (continue next-k (num+ v-l v))]
+    [(multSecondK r env next-k)
+     (interp r env
+             (doMultK v next-k))]
+    [(doMultK v-l next-k)
+     (continue next-k (num* v-l v))]
+    [(appArgK a env next-k)
+     (interp a env
+             (doAppK v next-k))]
+    [(pairSecondK exp env next-k) (interp exp env (doPairK v next-k))]
+    [(doPairK a next-k) (continue next-k (pairV a v))]
+    [(doFstK next-k) (type-case Value v
+                       [(pairV f s) (continue next-k f)]
+                       [else (error 'interp "not a pair")])]
+    [(doSndK next-k) (type-case Value v
+                       [(pairV f s) (continue next-k s)]
+                       [else (error 'interp "not a pair")])]
+    [(doAppK v-f next-k)
+     (type-case Value v-f
+       [(closV n body c-env)
+        (interp body
+                (extend-env
+                 (bind n v)
+                 c-env)
+                next-k)]
+       [else (error 'interp "not a function")])]))
+
+(module+ test
+  (test (interp (parse `{pair 5 6}) mt-env (doneK))
+        (pairV (numV 5) (numV 6)))
+  (test (interp (parse `{fst {pair 5 6}}) mt-env (doneK))
+        (numV 5))
+  (test (interp (parse `{snd {pair 5 6}}) mt-env (doneK))
+        (numV 6))
+
+  (test (interp (parse `{+ 1 {snd {pair 5 6}}}) mt-env (doneK))
+        (numV 7))
+  
+  (test (interp (parse `2) mt-env (doneK))
+        (numV 2))
+  (test/exn (interp (parse `x) mt-env (doneK))
+            "free variable")
+  (test (interp (parse `x)
+                (extend-env (bind 'x (numV 9)) mt-env)
+                (doneK))
+        (numV 9))
+  (test (interp (parse `{+ 2 1}) mt-env (doneK))
+        (numV 3))
+  (test (interp (parse `{* 2 1}) mt-env (doneK))
+        (numV 2))
+  (test (interp (parse `{+ {* 2 3} {+ 5 8}})
+                mt-env
+                (doneK))
+        (numV 19))
+  (test (interp (parse `{lambda {x} {+ x x}})
+                mt-env
+                (doneK))
+        (closV 'x (plusE (idE 'x) (idE 'x)) mt-env))
+  (test (interp (parse `{let {[x 5]}
+                          {+ x x}})
+                mt-env
+                (doneK))
+        (numV 10))
+  (test (interp (parse `{let {[x 5]}
+                          {let {[x {+ 1 x}]}
+                            {+ x x}}})
+                mt-env
+                (doneK))
+        (numV 12))
+  (test (interp (parse `{let {[x 5]}
+                          {let {[y 6]}
+                            x}})
+                mt-env
+                (doneK))
+        (numV 5))
+  (test (interp (parse `{{lambda {x} {+ x x}} 8})
+                mt-env
+                (doneK))
+        (numV 16))
+
+  (test/exn (interp (parse `{1 2}) mt-env (doneK))
+            "not a function")
+  (test/exn (interp (parse `{+ 1 {lambda {x} x}}) mt-env (doneK))
+            "not a number")
+  (test/exn (interp (parse `{let {[bad {lambda {x} {+ x y}}]}
+                              {let {[y 5]}
+                                {bad 2}}})
+                    mt-env
+                    (doneK))
+            "free variable")
+  ;; Eager:
+  (test/exn (interp (parse `{{lambda {x} 0} {1 2}}) mt-env (doneK))
+            "not a function")
+
+  (test (continue (doneK) (numV 5))
+        (numV 5))
+  (test (continue (plusSecondK (numE 6) mt-env (doneK)) (numV 5))
+        (numV 11))
+  (test (continue (doPlusK (numV 7) (doneK)) (numV 5))
+        (numV 12))
+  (test (continue (multSecondK (numE 6) mt-env (doneK)) (numV 5))
+        (numV 30))
+  (test (continue (doMultK (numV 7) (doneK)) (numV 5))
+        (numV 35))
+  (test (continue (appArgK (numE 5) mt-env (doneK)) (closV 'x (idE 'x) mt-env))
+        (numV 5))
+  (test (continue (doAppK (closV 'x (idE 'x) mt-env) (doneK)) (numV 8))
+        (numV 8)))
+
+;; num+ and num* ----------------------------------------
+(define (num-op [op : (Number Number -> Number)] [l : Value] [r : Value]) : Value
+  (cond
+   [(and (numV? l) (numV? r))
+    (numV (op (numV-n l) (numV-n r)))]
+   [else
+    (error 'interp "not a number")]))
+(define (num+ [l : Value] [r : Value]) : Value
+  (num-op + l r))
+(define (num* [l : Value] [r : Value]) : Value
+  (num-op * l r))
+
+(module+ test
+  (test (num+ (numV 1) (numV 2))
+        (numV 3))
+  (test (num* (numV 2) (numV 3))
+        (numV 6)))
+
+;; lookup ----------------------------------------
+(define (lookup [n : Symbol] [env : Env]) : Value
+  (type-case (Listof Binding) env
+    [empty (error 'lookup "free variable")]
+    [(cons b rst-env) (cond
+                        [(symbol=? n (bind-name b))
+                         (bind-val b)]
+                        [else (lookup n rst-env)])]))
+
+(module+ test
+  (test/exn (lookup 'x mt-env)
+            "free variable")
+  (test (lookup 'x (extend-env (bind 'x (numV 8)) mt-env))
+        (numV 8))
+  (test (lookup 'x (extend-env
+                    (bind 'x (numV 9))
+                    (extend-env (bind 'x (numV 8)) mt-env)))
+        (numV 9))
+  (test (lookup 'y (extend-env
+                    (bind 'x (numV 9))
+                    (extend-env (bind 'y (numV 8)) mt-env)))
+        (numV 8)))
+
+
+
+#lang plait ;;;;;;;;;;;;
+
+(define-type Value
+  (numV [n : Number])
+  (closV [arg : Symbol]
+         [body : Exp]
+         [env : Env]))
+
+(define-type Exp
+  (numE [n : Number])
+  (idE [s : Symbol])
+  (plusE [l : Exp] 
+         [r : Exp])
+  (multE [l : Exp]
+         [r : Exp])
+  (letE [n : Symbol] 
+        [rhs : Exp]
+        [body : Exp])
+  (lamE [n : Symbol]
+        [body : Exp])
+  (appE [fun : Exp]
+        [arg : Exp]))
+
+(define-type Binding
+  (bind [name : Symbol]
+        [val : Value]))
+
+(define-type-alias Env (Listof Binding))
+
+(define mt-env empty)
+(define extend-env cons)
+
+(module+ test
+  (print-only-errors #t))
+
+;; parse ----------------------------------------
+(define (parse [s : S-Exp]) : Exp
+  (cond
+    [(s-exp-match? `NUMBER s) (numE (s-exp->number s))]
+    [(s-exp-match? `SYMBOL s) (idE (s-exp->symbol s))]
+    [(s-exp-match? `{+ ANY ANY} s)
+     (plusE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{* ANY ANY} s)
+     (multE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{let {[SYMBOL ANY]} ANY} s)
+     (let ([bs (s-exp->list (first
+                             (s-exp->list (second
+                                           (s-exp->list s)))))])
+       (letE (s-exp->symbol (first bs))
+             (parse (second bs))
+             (parse (third (s-exp->list s)))))]
+    [(s-exp-match? `{lambda {SYMBOL} ANY} s)
+     (lamE (s-exp->symbol (first (s-exp->list 
+                                  (second (s-exp->list s)))))
+           (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{ANY ANY} s)
+     (appE (parse (first (s-exp->list s)))
+           (parse (second (s-exp->list s))))]
+    [else (error 'parse "invalid input")]))
+
+(module+ test
+  (test (parse `2)
+        (numE 2))
+  (test (parse `x)
+        (idE 'x))
+  (test (parse `{+ 2 1})
+        (plusE (numE 2) (numE 1)))
+  (test (parse `{* 3 4})
+        (multE (numE 3) (numE 4)))
+  (test (parse `{+ {* 3 4} 8})
+        (plusE (multE (numE 3) (numE 4))
+               (numE 8)))
+  (test (parse `{let {[x {+ 1 2}]}
+                  y})
+        (letE 'x (plusE (numE 1) (numE 2))
+              (idE 'y)))
+  (test (parse `{lambda {x} 9})
+        (lamE 'x (numE 9)))
+  (test (parse `{double 9})
+        (appE (idE 'double) (numE 9)))
+  (test/exn (parse `{{+ 1 2}})
+            "invalid input"))
+
+;; continuations --------------------
+(define-type-alias Cont (Value -> Value))
+(define (done-k v) v)
+
+;; interp ----------------------------------------
+(define (interp [a : Exp] [env : Env] [k : Cont]) : Value
+  (type-case Exp a
+    [(numE n) (k (numV n))]
+    [(idE s) (k (lookup s env))]
+    [(plusE l r) (interp l env
+                         (lambda (v-l)
+                           (interp r env
+                                   (lambda (v-r)
+                                     (k (num+ v-l v-r))))))]
+    [(multE l r) (interp l env
+                         (lambda (v-l)
+                           (interp r env
+                                   (lambda (v-r)
+                                     (k (num* v-l v-r))))))]
+    [(letE n rhs body) (interp rhs env
+                               (lambda (v-rhs)
+                                 (interp body
+                                         (extend-env
+                                          (bind n v-rhs)
+                                          env)
+                                         k)))]
+    [(lamE n body) (k (closV n body env))]
+    [(appE fun arg) (interp fun env
+                            (lambda (v-fun)
+                              (type-case Value v-fun
+                                [(closV n body c-env)
+                                 (interp arg env
+                                         (lambda (arg-v)
+                                           (interp body
+                                                   (extend-env
+                                                    (bind n
+                                                          arg-v)
+                                                    c-env)
+                                                   k)))]
+                                [else (error 'interp "not a function")])))]))
+
+(module+ test
+  (test (interp (parse `2) mt-env done-k)
+        (numV 2))
+  (test/exn (interp (parse `x) mt-env done-k)
+            "free variable")
+  (test (interp (parse `x) 
+                (extend-env (bind 'x (numV 9)) mt-env)
+                done-k)
+        (numV 9))
+  (test (interp (parse `{+ 2 1}) mt-env done-k)
+        (numV 3))
+  (test (interp (parse `{* 2 1}) mt-env done-k)
+        (numV 2))
+  (test (interp (parse `{+ {* 2 3} {+ 5 8}})
+                mt-env
+                done-k)
+        (numV 19))
+  (test (interp (parse `{lambda {x} {+ x x}})
+                mt-env
+                done-k)
+        (closV 'x (plusE (idE 'x) (idE 'x)) mt-env))
+  (test (interp (parse `{let {[x 5]}
+                          {+ x x}})
+                mt-env
+                done-k)
+        (numV 10))
+  (test (interp (parse `{let {[x 5]}
+                          {let {[x {+ 1 x}]}
+                            {+ x x}}})
+                mt-env
+                done-k)
+        (numV 12))
+  (test (interp (parse `{let {[x 5]}
+                          {let {[y 6]}
+                            x}})
+                mt-env
+                done-k)
+        (numV 5))
+  (test (interp (parse `{{lambda {x} {+ x x}} 8})
+                mt-env
+                done-k)
+        (numV 16))
+
+  (test/exn (interp (parse `{1 2}) mt-env done-k)
+            "not a function")
+  (test/exn (interp (parse `{+ 1 {lambda {x} x}}) mt-env done-k)
+            "not a number")
+  (test/exn (interp (parse `{let {[bad {lambda {x} {+ x y}}]}
+                              {let {[y 5]}
+                                {bad 2}}})
+                    mt-env
+                    done-k)
+            "free variable")
+
+  #;
+  (time (interp (parse '{let {[x2 {lambda {n} {+ n n}}]}
+                          {let {[x4 {lambda {n} {x2 {x2 n}}}]}
+                            {let {[x16 {lambda {n} {x4 {x4 n}}}]}
+                              {let {[x256 {lambda {n} {x16 {x16 n}}}]}
+                                {let {[x65536 {lambda {n} {x256 {x256 n}}}]}
+                                  {x65536 1}}}}}})
+                mt-env
+                done-k)))
+
+;; num+ and num* ----------------------------------------
+(define (num-op [op : (Number Number -> Number)] [l : Value] [r : Value]) : Value
+  (cond
+   [(and (numV? l) (numV? r))
+    (numV (op (numV-n l) (numV-n r)))]
+   [else
+    (error 'interp "not a number")]))
+(define (num+ [l : Value] [r : Value]) : Value
+  (num-op + l r))
+(define (num* [l : Value] [r : Value]) : Value
+  (num-op * l r))
+
+(module+ test
+  (test (num+ (numV 1) (numV 2))
+        (numV 3))
+  (test (num* (numV 2) (numV 3))
+        (numV 6)))
+
+;; lookup ----------------------------------------
+(define (lookup [n : Symbol] [env : Env]) : Value
+  (type-case (Listof Binding) env
+   [empty (error 'lookup "free variable")]
+   [(cons b rst-env) (cond
+                       [(symbol=? n (bind-name b))
+                        (bind-val b)]
+                       [else (lookup n rst-env)])]))
+
+(module+ test
+  (test/exn (lookup 'x mt-env)
+            "free variable")
+  (test (lookup 'x (extend-env (bind 'x (numV 8)) mt-env))
+        (numV 8))
+  (test (lookup 'x (extend-env
+                    (bind 'x (numV 9))
+                    (extend-env (bind 'x (numV 8)) mt-env)))
+        (numV 9))
+  (test (lookup 'y (extend-env
+                    (bind 'x (numV 9))
+                    (extend-env (bind 'y (numV 8)) mt-env)))
+        (numV 8)))
+
+  
 
 ______________
 
 __Notes__
+
+How to continue wih the computation once we get a value. ( a to do list )
+A stack is one way to implement continuations.
+
+Infinite loops
+	Tail Calls - recursive function will run forever because there is no work to do after the function returns.
+	ex.
+		(define (forever x)
+			(forever (not x)))
+	ex2.
+		(define (forever x)
+			(if x
+				(forever #t)
+				(forever #f)))
+
+	Non-Tail Calls - will run out of memory because it is not in tail postion and because there is work to do after it returns.
+	ex.
+		(define (run-out-of-memory x)
+			(not (run-out-of-memory x)))
+	ex2.
+		(define (run-out-of-memory x)
+			(if (run-out-of-memory x)
+				#t
+				#f))
+
+In lambda-k.rkt: 
+	- interp call continue only as a tail call.
+	- continue calls interp only as a tail call.
+	- lookup calls lookup only as a tail call.
+	- So Plait continuation is always small and wont run out of memory becuare of how we arranged the recursive calls.
+
+Dont ever just return a value.
+Errors discard any continuations.
+Dont ever look at the result of interp or continue
+
+Continuation passing style (CPS): continuations using functions
+
+Passing work along to be done later. 
+In java going through a tree recursively might blow up the stack so you might need a continuation or in c or something using queues or something else.
+
+interp
+	pairE l r (pairV (interp l env) (intperp r env)) ; no continuations
+
+	(continure k (pairV (interp l env) (intperp r env))) ; this would pass all tests but Matt is not happy with it. THis is becuase we just take advantage of Plait.
+
+interp and continue must be in tail postion
+
+
+
+Errors Exceptions and call/cc *************************************************
+
+
+__Class Demo__
+
+TRACE 1 ;;;;;;;;;;;;;;;;;
+;; For each step:
+;;   - interp or continue?
+;;   - after, did we lose anything? the same result?
+
+(interp (parse '{{lambda {x} {+ x 2}}
+                 8})
+        mt-env
+        (doneK))
+
+;; appE
+(interp {lambda {x} {+ x 2}}
+        mt-env
+        (appArgK `8 mt-env (doneK)))
+
+(continue
+ (appArgK `8 mt-env (doneK))
+ v1 = (closV 'x (plusE (idE 'x) (numE 2)) mt-env))
+
+(interp `8
+        mt-env
+        (doAppK v1 (doneK)))
+
+(continue
+ (doAppK v1 (doneK))
+ (numV 8))
+
+(interp (plusE (idE 'x) (numE 2))
+        e1 = (extend-env (bind 'x (numV 8)) mt-env)
+        (doneK))
+
+(interp 'x
+        (e1)
+       k2 = (plusSecondK (numE 2) (e1) (doneK)))
+
+(continue
+ (k2)
+ (numV 8))
+
+(interp (numE 2)
+        (e1)
+        k3 = (doPlusK (numV 8) (doneK)))
+
+(continue (k3) (numV 2))
+
+(continue (doneK)
+          (numV 10))
+
+TRACE 2 ;;;;;;;;;;;
+(interp (parse '{+ x 5})
+        e1 = (extend-env (bind 'x (numV 8)) mt-env)
+        k1 = (doMultK (numV 7) (doneK)))
+
+(interp `x
+        e1
+        k2 = (plusSecondK `5 e1 k1))
+
+(continue k2
+          (numV 8))
+
+(interp `5
+        e1
+        k3 = (doPlusK (numV 8) k1))
+
+(continue k3
+          (numV 5))
+
+(continue k1
+          (numV 13))
+
+(continue (doneK)
+          (numV 91))
+          
+TRACE 3 ;;;;;;;;;;
+(interp (parse `{let/cc k
+                  {+ 1 {k 8}}})
+        mt-env
+        (doneK))
+
+(interp `{+ 1 {k 8}}
+        e1 = (extend-env (bind 'k (contV (doneK))) mt-env)
+        (doneK))
+
+(interp `1
+        e1
+        k1 = (plusSecondK `{k 8} e1 (doneK)))
+
+(continue k1
+          (numV 1))
+
+(interp `{k 8}
+        e1
+        k2 = (doPlusK (numV 1) (doneK)))
+
+(interp `k
+        e1
+        k3 = (appArgK `8 e1 k2))
+
+(continue k3
+          (contV (doneK)))
+
+(interp `8
+        e1
+        k4 = (doAppK (contV (doneK)) k2))
+
+(continue k4
+          (numV 8))
+
+(continue (doneK)
+          (numV 8))
+
+
+TRACE 4 ;;;;;;;;;;;
+(interp (parse '{{let/cc k k}
+                 {lambda {f} 2}})
+        mt-env
+        (doneK))
+
+(interp `{let/cc k k}
+        mt-env
+        k1 = (appArgK `{lambda {f} 2} mt-env (doneK)))
+
+(interp `k
+        (extend-env (bind 'k (contV k1)) mt-env)
+        k1)
+
+(continue (contV k1)
+          k1)
+
+(interp `{lambda {f} 2}
+        mt-env
+        (doAppK (contV k1) (doneK)))
+
+(continue (doAppK (contV k1) (doneK))
+          (closV 'f `2 mt-env))
+
+(continue k1
+          (closV 'f `2 mt-env))
+
+(interp `{lambda {f} 2}
+        mt-env
+        (doAppK (closV 'f `2 mt-env) (doneK)))
+
+....
+
+______________
+
+
+__Notes__
+
+erase all previous calls to interp someone who just walked into the room should still know the final right answer. 
+
+always use env saved in closure and extend that one. 
+
+for each step
+	- interp or continue
+	- after, did we lose anything? the same result?
+
+if we immedialty get a value then we can continue.
+if we have an expression and an environment then all we can do is interp.
+
+Expressions should always have an environment along with it.
+
+continuation of a java stack is similar to a let/cc.
+
+set jump and long jump in C.
+
+Web servers taling to client cant wait for the client to send something over in the middle of a computation so a continusation is stored as what to do when you do get that information and then it can continue that continuation.
+
+on top threads and exception.
+
+go to this place in code with this stack
+
+
+Compilation *************************************************
+
+__Class Demo__
+
+______________
+
+__Notes__
+
+
+
+
+
+
 
 
 

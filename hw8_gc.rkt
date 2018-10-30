@@ -23,7 +23,9 @@
         [arg-expr : Exp])
   (if0E [tst : Exp]
         [thn : Exp]
-        [els : Exp]))
+        [els : Exp])
+  (boxE [b : Exp])
+  (unboxE [ub : Exp]))
 
 #|
     (define-type ExpD
@@ -38,15 +40,17 @@
             (arg-expr : ExpD)]
   14  [if0D (tst : ExpD)
             (thn : ExpD)
-            (els : ExpD)])
+            (els : ExpD)]
+  18  [boxD (b : ExpD)]
+  19  [unboxD (ub : ExpD)])
 |#
 
 #|
     (define-type Value
   15  [numV (n : number)]
   16  [closV (body : ExprD)
-             (env : Env)])
-
+             (env : Env)]
+  22  [boxV (v : Value)])
 |#
 
 (define mt-env empty)
@@ -78,7 +82,9 @@
   7   [doIf0K (then-expr : ExprD)
               (else-expr : ExprD)
               (env : Env)
-              (k : Cont)])
+              (k : Cont)]
+  20  [doBoxK (k : Cont)]
+  21  [doUnboxK (k : Cont)])
 |#
 
 #|
@@ -137,6 +143,10 @@
    [(s-exp-match? `{* ANY ANY} s)
     (multE (parse (second (s-exp->list s)))
           (parse (third (s-exp->list s))))]
+   [(s-exp-match? `{box ANY} s)
+    (boxE (parse (second (s-exp->list s))))]
+   [(s-exp-match? `{unbox ANY} s)
+    (unboxE (parse (second (s-exp->list s))))]
    [(s-exp-match? `{lambda {SYMBOL} ANY} s)
     (lamE (s-exp->symbol (first (s-exp->list 
                                  (second (s-exp->list s)))))
@@ -151,6 +161,8 @@
    [else (error 'parse "invalid input")]))
 
 (module+ test
+  (test (parse `{box {+ 7 7}}) (boxE (plusE (numE 7) (numE 7))))
+  (test (parse `{unbox {box 7}}) (unboxE (boxE (numE 7))))
   (test (parse `3) (numE 3))
   (test (parse `x) (idE 'x))
   (test (parse `{+ 1 2}) (plusE (numE 1) (numE 2)))
@@ -168,6 +180,8 @@
     [(plusE l r) (code-malloc2 9 (compile l env) (compile r env))]
     [(multE l r) (code-malloc2 10 (compile l env) (compile r env))]
     [(idE name) (code-malloc1 11 (locate name env))]
+    [(boxE b) (code-malloc1 18 (compile b env))]
+    [(unboxE ub) (code-malloc1 19 (compile ub env))]
     [(lamE n body-expr) 
      (code-malloc1 12 (compile body-expr (extend-env
                                           (bindC n)
@@ -424,6 +438,22 @@
                             (code-ref expr-reg 3)
                             env-reg k-reg))
        (set! expr-reg (code-ref expr-reg 1))
+       (interp))]
+    [(18) ; box
+     (begin
+       (set! k-reg (malloc3 20
+                            (code-ref expr-reg 2)
+                            env-reg 
+                            k-reg))
+       (set! expr-reg (code-ref expr-reg 1))
+       (interp))]
+    [(19) ; unbox
+     (begin
+       (set! k-reg (malloc3 21
+                            (code-ref expr-reg 2)
+                            env-reg 
+                            k-reg))
+       (set! expr-reg (code-ref expr-reg 1))
        (interp))]))
 
 (define k-reg 0) ; Cont
@@ -631,3 +661,49 @@
 
   (test/exn (compile (parse `x) mt-env)
             "free variable"))
+
+;; HW8 tests ---------------------------------------------
+
+(module+ test
+  (reset!)
+  (ntest (interpx (compile
+                   (parse `{unbox {unbox {box {box 3}}}})
+                   mt-env)
+                  empty-env
+                  (init-k))
+         3)
+  
+  (reset!)
+  (ntest (interpx (compile
+                   (parse
+                    `{{lambda {mkrec}
+                        {{{lambda {chain}
+                            {lambda {unchain}
+                              ;; Make a chain of boxes, then traverse
+                              ;; them:
+                              {{unchain 13} {chain 13}}}}
+                          ;; Create recursive chain function:
+                          {mkrec
+                           {lambda {chain}
+                             {lambda {n}
+                               {if0 n
+                                    1
+                                    {box {chain {+ n -1}}}}}}}}
+                         ;; Create recursive unchain function:
+                         {mkrec
+                          {lambda {unchain}
+                            {lambda {n}
+                              {lambda {b}
+                                {if0 n
+                                     b
+                                     {unbox {{unchain {+ n -1}} b}}}}}}}}}
+                      ;; mkrec:
+                      {lambda {body-proc}
+                        {{lambda {fX}
+                           {fX fX}}
+                         {lambda {fX}
+                           {body-proc {lambda {x} {{fX fX} x}}}}}}})
+                   mt-env)
+                  empty-env
+                  (init-k))
+         1))

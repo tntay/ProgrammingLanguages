@@ -6363,7 +6363,27 @@ ______________
 
 __Notes__
 
+(define (numV n)
+	(list (values 'apply (lambda (arg-val ...))
+		  (values 'number (lambda () ...)))))
 
+(dfine (closV n body c-env)
+	(list (values 'appy (lambda (arg-val) ...))
+		  (values 'number (lambda () ...))))
+
+results of numV or closV is an object.
+
+fucntions for 'apply and 'number are methods.
+
+n, body, c-env are feilds.
+
+numV and closV are constructors.
+
+Moving to Classes provides two new features
+	- inheritance of methonds
+	- static method despatch (using super to invoke method in parent class)
+
+Flattening cuts out the inheritence by putting all the relevenat infomarion into each class.
 
 
 

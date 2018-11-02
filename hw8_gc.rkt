@@ -325,7 +325,11 @@
          (begin
            (move! 3)
            (move! 4)
-           (done 4))])))
+           (done 4))]
+        [(20 21 22)
+         (begin
+           (move! 1)
+           (done 1))])))
 
 (define (done n)
   (begin
@@ -353,7 +357,7 @@
       ;; White:
       (begin
         (case (vector-ref from-memory n)
-          [(0 15)
+          [(0 15 20 21 22)
            ;; size 1
            (begin
              (malloc1 (vector-ref from-memory n)
@@ -441,17 +445,13 @@
        (interp))]
     [(18) ; box
      (begin
-       (set! k-reg (malloc3 20
-                            (code-ref expr-reg 2)
-                            env-reg 
+       (set! k-reg (malloc1 20 
                             k-reg))
        (set! expr-reg (code-ref expr-reg 1))
        (interp))]
     [(19) ; unbox
      (begin
-       (set! k-reg (malloc3 21
-                            (code-ref expr-reg 2)
-                            env-reg 
+       (set! k-reg (malloc1 21 
                             k-reg))
        (set! expr-reg (code-ref expr-reg 1))
        (interp))]))
@@ -507,7 +507,18 @@
            (set! expr-reg (ref k-reg 2)))
        (set! env-reg (ref k-reg 3))
        (set! k-reg (ref k-reg 4))
-       (interp))]))
+       (interp))]
+    [(20) ; doBoxK
+     (begin
+       (set! v-reg (malloc1 22 v-reg))
+       (set! k-reg (ref k-reg 1))
+       (continue))]
+    [(21) ; doUnboxK
+     (begin
+       (begin
+         (set! v-reg (ref v-reg 1))
+         (set! k-reg (ref k-reg 1))
+         (continue)))]))
 
 ;; num-op : (number number -> number) -> (Value Value -> Value)
 (define (num-op op)
@@ -667,12 +678,34 @@
 (module+ test
   (reset!)
   (ntest (interpx (compile
+                   (parse `{box 7})
+                   mt-env)
+                  empty-env
+                  (init-k))
+         7)
+  (reset!)
+  (ntest (interpx (compile
+                   (parse `{unbox {unbox {box 7}}})
+                   mt-env)
+                  empty-env
+                  (init-k))
+         7)
+  (reset!)
+  (ntest (interpx (compile
+                   (parse `{unbox {box {box {box {box {box {box {box {box {box {box {box {box {box {box {box {box {box {box 7}}}}}}}}}}}}}}}}}}})
+                   mt-env)
+                  empty-env
+                  (init-k))
+         7)
+  (reset!)
+  (ntest (interpx (compile
                    (parse `{unbox {unbox {box {box 3}}}})
                    mt-env)
                   empty-env
                   (init-k))
          3)
-  
+
+
   (reset!)
   (ntest (interpx (compile
                    (parse

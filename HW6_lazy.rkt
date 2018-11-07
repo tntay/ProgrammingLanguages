@@ -1,11 +1,150 @@
+#|
+CS 3520 Homework 6
+Due: Wednesday, October 17th, 2018 11:59pm
+Trenton Taylor
+u0872466
+
+Implement an interpreter with lazy evaluation and the following grammar:
+
+  <Exp> = <Number>
+        | <Symbol>
+        | {+ <Exp> <Exp>}
+        | {* <Exp> <Exp>}
+        | {lambda {<Symbol>} <Exp>}
+        | {<Exp> <Exp>}
+        | {let {[<Symbol> <Exp>]} <Exp>}
+        | {if0 <Exp> <Exp> <Exp>}
+        | {pair <Exp> <Exp>}
+        | {fst <Exp>}
+        | {snd <Exp>}
+
+That is, a language with single-argument functions and application, an if-zero
+conditional, and pair, fst, and snd operations. (The language does not include
+recursive bindings or records.) Unlike cons, the pair operation does not require
+its second argument to be a list (and we do not have an empty-list value, anyway).
+
+Implement your interpreter with the eager Plait language, not a lazy language.
+
+Evaluation of the interpreted langauge must be lazy. In particular, if a function
+never uses the value of an argument, then the argument expression should not be
+evaluated. Similarly, if the first or second part of a pair is never needed, then
+the first or second expression should not be evaluated.
+
+Start with more-lazy.rkt. Expand the parse function to support the new forms: if0,
+pair, fst, and snd. Also, as in HW 4, provide an interp-expr function; the
+interp-expr wrapper for interp should take an expression and return either a number
+S-expression, `function for a function result, or `pair for a pair result.
+(Meanwhile, the interp function should never return the symbol `pair, just like
+the starting interp function never returns the symbol `function.) Note that pair
+results must distinct from function results, so you will need to modify interp and
+not just use encodings via parse.
+
+  (test (interp-expr (parse `10))
+        `10)
+  (test (interp-expr (parse `{+ 10 17}))
+        `27)
+  (test (interp-expr (parse `{* 10 7}))
+        `70)
+  (test (interp-expr (parse `{{lambda {x} {+ x 12}}
+                              {+ 1 17}}))
+        `30)
+  
+  (test (interp-expr (parse `{let {[x 0]}
+                               {let {[f {lambda {y} {+ x y}}]}
+                                 {+ {f 1}
+                                    {let {[x 3]}
+                                      {f 2}}}}}))
+        `3)
+  
+  (test (interp-expr (parse `{if0 0 1 2}))
+        `1)
+  (test (interp-expr (parse `{if0 1 1 2}))
+        `2)
+  
+  (test (interp-expr (parse `{pair 1 2}))
+        `pair)
+  (test (interp-expr (parse `{fst {pair 1 2}}))
+        `1)
+  (test (interp-expr (parse `{snd {pair 1 2}}))
+        `2)
+  (test (interp-expr (parse `{let {[p {pair 1 2}]}
+                               {+ {fst p} {snd p}}}))
+        `3)
+  
+  ;; Lazy evaluation:
+  (test (interp-expr (parse `{{lambda {x} 0}
+                              {+ 1 {lambda {y} y}}}))
+        `0)
+  (test (interp-expr (parse `{let {[x {+ 1 {lambda {y} y}}]}
+                               0}))
+        `0)
+  (test (interp-expr (parse `{fst {pair 3
+                                        {+ 1 {lambda {y} y}}}}))
+        `3)
+  (test (interp-expr (parse `{snd {pair {+ 1 {lambda {y} y}}
+                                        4}}))
+        `4)
+  (test (interp-expr (parse `{fst {pair 5
+                                        ;; Infinite loop:
+                                        {{lambda {x} {x x}}
+                                         {lambda {x} {x x}}}}}))
+        `5)
+  
+  (test (interp-expr 
+         (parse 
+          `{let {[mkrec
+                  ;; This is call-by-name mkrec
+                  ;;  (simpler than call-by-value):
+                  {lambda {body-proc}
+                    {let {[fX {lambda {fX}
+                                {body-proc {fX fX}}}]}
+                      {fX fX}}}]}
+              {let {[fib
+                     {mkrec
+                      {lambda {fib}
+                        ;; Fib:
+                        {lambda {n}
+                          {if0 n
+                               1
+                               {if0 {+ n -1}
+                                    1
+                                    {+ {fib {+ n -1}}
+                                       {fib {+ n -2}}}}}}}}]}
+                ;; Call fib on 4:
+                {fib 4}}}))
+        `5)
+
+  (test (interp-expr 
+         (parse 
+          `{let {[mkrec
+                  ;; This is call-by-name mkrec
+                  ;;  (simpler than call-by-value):
+                  {lambda {body-proc}
+                    {let {[fX {lambda {fX}
+                                {body-proc {fX fX}}}]}
+                      {fX fX}}}]}
+             {let {[nats-from
+                    {mkrec
+                     {lambda {nats-from}
+                       ;; nats-from:
+                       {lambda {n}
+                         {pair n {nats-from {+ n 1}}}}}}]}
+               {let {[list-ref
+                      {mkrec
+                       {lambda {list-ref}
+                         ;; list-ref:
+                         {lambda {n}
+                           {lambda {l}
+                             {if0 n
+                                  {fst l}
+                                  {{list-ref {+ n -1}} {snd l}}}}}}}]}
+                 ;; Call list-ref on infinite list:
+                 {{list-ref 4} {nats-from 2}}}}}))
+        `6)
+|#
+
 #lang plait
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Trenton Taylor
-; u0872466
-; HW5
-; October 16, 2018
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define-type Value
   (numV [n : Number])

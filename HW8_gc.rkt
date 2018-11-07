@@ -1,11 +1,87 @@
+#|
+CS 3520 Homework 8
+Due: Friday, November 2nd, 2018 11:59pm
+Trenton Taylor
+u0872466
+
+Part 1 — Boxes
+Start with 5.rkt and add box and unbox:
+
+  <Exp> = ...
+        | {box <Exp>}
+        | {unbox <Exp>}
+
+Your interpreter can assume that the argument to unbox is always a box.
+
+Examples:
+
+  (reset!)
+  (ntest (interpx (compile
+                   (parse `{unbox {unbox {box {box 3}}}})
+                   mt-env)
+                  empty-env
+                  (init-k))
+         3)
+  
+  (reset!)
+  (ntest (interpx (compile
+                   (parse
+                    `{{lambda {mkrec}
+                        {{{lambda {chain}
+                            {lambda {unchain}
+                              ;; Make a chain of boxes, then traverse
+                              ;; them:
+                              {{unchain 13} {chain 13}}}}
+                          ;; Create recursive chain function:
+                          {mkrec
+                           {lambda {chain}
+                             {lambda {n}
+                               {if0 n
+                                    1
+                                    {box {chain {+ n -1}}}}}}}}
+                         ;; Create recursive unchain function:
+                         {mkrec
+                          {lambda {unchain}
+                            {lambda {n}
+                              {lambda {b}
+                                {if0 n
+                                     b
+                                     {unbox {{unchain {+ n -1}} b}}}}}}}}}
+                      ;; mkrec:
+                      {lambda {body-proc}
+                        {{lambda {fX}
+                           {fX fX}}
+                         {lambda {fX}
+                           {body-proc {lambda {x} {{fX fX} x}}}}}}})
+                   mt-env)
+                  empty-env
+                  (init-k))
+         1)
+
+Part 2 — Extra Credit: Box Assignment
+Add set-box!:
+
+  <Exp> = ...
+        | {set-box! <Exp> <Exp>}
+
+You can make set-box! return whatever you like, and your interpreter can assume
+that the first argument to set-box! is always a box.
+
+  (reset!)
+  (ntest (interpx (compile
+                   (parse `{{lambda {b}
+                              {{lambda {z}
+                                 {unbox b}}
+                               {set-box! b {+ {unbox b} 1}}}}
+                            {box 3}})
+                   mt-env)
+                  empty-env
+                  (init-k))
+         4)
+|#
+
 #lang plait
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Trenton Taylor
-; u0872466
-; HW8
-; November 2, 2018
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
 ;; Garbage collection for run-time memory

@@ -1,11 +1,63 @@
-#lang plait
+#|
+CS 3520 Homework 1
+Due: Wednesday, August 29th, 2018 11:59pm
+Trenton Taylor
+u0872466
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Trenton Taylor
-; u0872466
-; HW1
-; August 29, 2018
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+The following Tree datatype implements a binary tree with a number in each
+node and leaf:
+
+  (define-type Tree
+    (leaf [val : Number])
+    (node [val : Number]
+          [left : Tree]
+          [right : Tree]))
+
+Part 1 — Sum
+Implement a sum function that takes a tree and returns the sum of the numbers
+in the tree.
+
+Example: (sum (node 5 (leaf 6) (leaf 7))) should produce 18.
+
+Part 2 — Negate
+Implement the function negate, which takes a tree and returns a tree that has
+the same shape, but with all the numbers negated.
+
+Example: (negate (node 5 (leaf 6) (leaf 7))) should produce (node -5 (leaf -6)
+(leaf -7)).
+
+Part 3 — Contains?
+Implement the function contains?, which takes a tree and a number and returns
+#t if the number is in the tree, #f otherwise.
+
+Example: (contains? (node 5 (leaf 6) (leaf 7)) 6) should produce #t.
+
+The second argument to the contains? function is “along for the ride.”
+
+Part 4 — Big Leaves?
+Implement the function big-leaves?, which takes a tree and returns #t if every
+leaf is bigger than the sum of numbers in the path of nodes from the root that
+reaches the leaf.
+
+Examples: (big-leaves? (node 5 (leaf 6) (leaf 7))) should produce #t, while
+(big-leaves? (node 5 (node 2 (leaf 8) (leaf 6)) (leaf 7))) should produce #f
+(since 6 is smaller than 5 plus 2).
+
+The big-leaves? function should be a thin wrapper on another function, perhaps
+bigger-leaves?, that accumulates a sum of node values.
+
+Part 5 — Optional challenge: Sorted?
+Implement the function sorted?, which takes a tree and determines whether it is
+sorted in the sense that the numbers increase (or stay the same) in a inorder
+travsersal of the tree.
+
+Your function should run in time proportional to the size of the tree, which rules
+out making a list of the tree numbers using append on recursive calls. One possible
+solution accumulates a compound value, and another possible solution accumulates
+information on the way down the tree and returns more than just success or failure.
+|#
+
+#lang plait
 
 
 ; ------- data analysis -------

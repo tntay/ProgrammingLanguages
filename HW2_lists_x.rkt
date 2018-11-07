@@ -1,11 +1,82 @@
-#lang plait
+#|
+CS 3520 Homework 2
+Due: Wednesday, September 5th, 2018 11:59pm
+Trenton Taylor
+u0872466
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Trenton Taylor
-; u0872466
-; HW2
-; September 5, 2018
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Part 1 — Maximum
+Start with the interpreter with functions, and add a max operator that takes two
+numbers and returns the larger of them.
+
+Since you must change the Exp datatype, and since different people may change it
+in different ways, you must update the parse function, which accepts an S-expression
+and produces an Exp value.
+
+Some examples:
+
+  (test (interp (parse `{max 1 2})
+                (list))
+        2)
+  (test (interp (parse `{max {+ 4 5} {+ 2 3}})
+                (list))
+        9)
+
+Part 2 — Functions that Accept Multiple Arguments
+Extend the interpreter to support multiple or zero arguments to a function, and
+multiple or zero arguments in a function call.
+
+For example,
+
+  {define {area w h} {* w h}}
+defines a function that takes two arguments, while
+
+  {define {five} 5}
+defines a function that takes zero arguments. Similarly,
+
+  {area 3 4}
+calls the function area with two arguments, while
+
+  {five}
+calls the function five with zero arguments.
+
+At run-time, a new error is now possible: function application with the wrong
+number of arguments. Your interp function should detect the mismatch and report
+an error that includes the words “wrong arity”.
+
+To support functions with multiple arguments, you’ll have to change fd and appE
+and all tests that use them. When you update the parse function, note that s-exp-match?
+supports ... in a pattern to indicate zero or more repetitions of the preceding pattern.
+Beware of putting the multi-argument application pattern too early in parse, since that
+pattern is likely to match other forms. In addition, you’ll need to update the
+parse-fundef function that takes one quoted define form and produces a Func-Defn value.
+
+Some examples:
+
+  (test (interp (parse `{f 1 2})
+                (list (parse-fundef `{define {f x y} {+ x y}})))
+        3)
+  (test (interp (parse `{+ {f} {f}})
+                (list (parse-fundef `{define {f} 5})))
+        10)
+  (test/exn (interp (parse `{f 1})
+                    (list (parse-fundef `{define {f x y} {+ x y}})))
+            "wrong arity")
+
+Remember that Plait provides map, which takes a function and a list, and applies
+the function to each element in the list, returning a list of results. For example,
+if sexps is a list of S-expressions to parse, (map parse sexps) produces a list of
+ExprCs by parsing each S-expression.
+
+Part 3 — Function Argument Checking
+A function is ill-defined if two of its argument names are the same. To prevent this
+problem, update your parse-fundef function can detect this problem and report a “bad
+syntax” error.
+
+For example, (parse-fundef `{define {f x x} x}) must report a “bad syntax” error,
+while (parse-fundef `{define {f x y} x}) should produce a Func-Defn value.
+|#
+
+#lang plait
 
 
 (define-type Exp

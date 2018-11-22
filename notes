@@ -25,6 +25,7 @@ Sections:
 - Types
 - Classes and Type Checking
 - Type Inference
+- Subtyping
 
 
 
@@ -7683,7 +7684,7 @@ Things type-checker will check
   - treat subclasses as subtypes.
 
 
-Type Inference ****************************************
+Type Inference *****************************************************
 
 __Class Demo__
 
@@ -8162,11 +8163,28 @@ Dont call typecheck on the same expression since it is a bang! function.
 
 
 
+Subtyping **************************************************
+
+__Class Demo__
+
+______________
 
 
+__Notes__
 
+introduce subtypes to allow for typechecking of records that have differnet orders or more arguments than thought.
 
+Function-result types are covariant with function types.
+ - covariant - easy to think about ones. Bob wants fish Alice gives color fish.
 
+Function-argument types are contravariant with function types.
+ - contravariant - not easy to think about. Bob wants bowl for his fish Alice has a bowl for a color fish which doesnt work.
+
+Feild types must be invariant with record types.
+Rules break when you do imparative updates to records.
+
+*More general is less information. Subtypes have more information.
+*Color fish is a subtype of a generic fish.
 
 
 

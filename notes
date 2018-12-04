@@ -26,6 +26,9 @@ Sections:
 - Classes and Type Checking
 - Type Inference
 - Subtyping
+- Typed Recursion
+- Parametric Polymorphism
+- S-Expressions and Macros
 
 
 
@@ -8167,6 +8170,1518 @@ Subtyping **************************************************
 
 __Class Demo__
 
+#lang plait
+
+;; Start with "subtype.rkt"
+
+;; Add `if0` so that an expression like
+;;
+;;  {get {if0 ....
+;;            {record {x 8}}
+;;            {record {x 9} {y 10}}}
+;;       x}
+;;
+;; has a type.
+
+(define-type Value
+  (numV [n : Number])
+  (closV [arg : Symbol]
+         [body : Exp]
+         [env : Env])
+  (recordV [l1 : (Listof Symbol)]
+           [l2 : (Listof Value)]))
+
+(define-type Exp
+  (numE [n : Number])
+  (idE [s : Symbol])
+  (plusE [l : Exp] 
+         [r : Exp])
+  (multE [l : Exp]
+         [r : Exp])
+  (lamE [n : Symbol]
+        [arg-type : Type]
+        [body : Exp])
+  (appE [fun : Exp]
+        [arg : Exp])
+  (recordE [ns : (Listof Symbol)]
+           [args : (Listof Exp)])
+  (getE [rec : Exp]
+        [n : Symbol])
+  (setE [rec : Exp]
+        [n : Symbol]
+        [val : Exp])
+  (if0E [cnd : Exp]
+        [thn : Exp]
+        [els : Exp]))
+
+(define-type Type
+  (numT)
+  (boolT)
+  (arrowT [arg : Type]
+          [result : Type])
+  (recordT [names : (Listof Symbol)]
+           [field : (Listof Type)]))
+
+(define-type Binding
+  (bind [name : Symbol]
+        [val : Value]))
+
+(define-type-alias Env (Listof Binding))
+
+(define-type Type-Binding
+  (tbind [name : Symbol]
+         [type : Type]))
+
+(define-type-alias Type-Env (Listof Type-Binding))
+
+(define mt-env empty)
+(define extend-env cons)
+
+(module+ test
+  (print-only-errors #t))
+
+;; parse ----------------------------------------
+(define (parse [s : S-Exp]) : Exp
+  (cond
+    [(s-exp-match? `NUMBER s) (numE (s-exp->number s))]
+    [(s-exp-match? `SYMBOL s) (idE (s-exp->symbol s))]
+    [(s-exp-match? `{+ ANY ANY} s)
+     (plusE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{* ANY ANY} s)
+     (multE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{let {[SYMBOL : ANY ANY]} ANY} s)
+     (let ([bs (s-exp->list (first
+                             (s-exp->list (second
+                                           (s-exp->list s)))))])
+       (appE (lamE (s-exp->symbol (first bs))
+                   (parse-type (third bs))
+                   (parse (third (s-exp->list s))))
+             (parse (fourth bs))))]
+    [(s-exp-match? `{lambda {[SYMBOL : ANY]} ANY} s)
+     (let ([arg (s-exp->list
+                 (first (s-exp->list 
+                         (second (s-exp->list s)))))])
+       (lamE (s-exp->symbol (first arg))
+             (parse-type (third arg))
+             (parse (third (s-exp->list s)))))]
+    [(s-exp-match? `{record {SYMBOL ANY} ...} s)
+     (recordE (map (lambda (l) (s-exp->symbol (first (s-exp->list l))))
+                   (rest (s-exp->list s)))
+              (map (lambda (l) (parse (second (s-exp->list l))))
+                   (rest (s-exp->list s))))]
+    [(s-exp-match? `{get ANY SYMBOL} s)
+     (getE (parse (second (s-exp->list s)))
+           (s-exp->symbol (third (s-exp->list s))))]
+    [(s-exp-match? `{set ANY SYMBOL ANY} s)
+     (setE (parse (second (s-exp->list s)))
+           (s-exp->symbol (third (s-exp->list s)))
+           (parse (fourth (s-exp->list s))))]
+    [(s-exp-match? `{ANY ANY} s)
+     (appE (parse (first (s-exp->list s)))
+           (parse (second (s-exp->list s))))]
+    [(s-exp-match? `{if0 ANY ANY ANY} s)
+          (if0E (parse (second (s-exp->list s)))
+           (parse (third (s-exp->list s)))
+           (parse (fourth (s-exp->list s))))]
+    [else (error 'parse "invalid input")]))
+
+(define (parse-type [s : S-Exp]) : Type
+  (cond
+    [(s-exp-match? `num s) 
+     (numT)]
+    [(s-exp-match? `bool s)
+     (boolT)]
+    [(s-exp-match? `(ANY -> ANY) s)
+     (arrowT (parse-type (first (s-exp->list s)))
+             (parse-type (third (s-exp->list s))))]
+    [(s-exp-match? `{[SYMBOL : ANY] ...} s)
+     (let ([fields (map s-exp->list (s-exp->list s))])
+       (recordT (map s-exp->symbol (map first fields))
+                (map parse-type (map third fields))))]
+    [else (error 'parse-type "invalid input")]))
+
+(module+ test
+  (test (parse `2)
+        (numE 2))
+  (test (parse `x) ; note: backquote instead of normal quote
+        (idE 'x))
+  (test (parse `{+ 2 1})
+        (plusE (numE 2) (numE 1)))
+  (test (parse `{* 3 4})
+        (multE (numE 3) (numE 4)))
+  (test (parse `{+ {* 3 4} 8})
+        (plusE (multE (numE 3) (numE 4))
+               (numE 8)))
+  (test (parse `{let {[x : num {+ 1 2}]}
+                  y})
+        (appE (lamE 'x (numT) (idE 'y))
+              (plusE (numE 1) (numE 2))))
+  (test (parse `{lambda {[x : num]} 9})
+        (lamE 'x (numT) (numE 9)))
+  (test (parse `{double 9})
+        (appE (idE 'double) (numE 9)))
+  (test (parse `{record {x {+ 1 2}} {y 3}})
+        (recordE (list 'x 'y)
+                 (list (plusE (numE 1) (numE 2)) (numE 3))))
+  (test (parse `{get {+ 1 2} a})
+        (getE (plusE (numE 1) (numE 2)) 'a))
+  (test (parse `{set {+ 1 2} a 7})
+        (setE (plusE (numE 1) (numE 2)) 'a (numE 7)))
+  (test/exn (parse `{{+ 1 2}})
+            "invalid input")
+
+  (test (parse-type `num)
+        (numT))
+  (test (parse-type `bool)
+        (boolT))
+  (test (parse-type `(num -> bool))
+        (arrowT (numT) (boolT)))
+  (test (parse-type `{[x : num] [y : bool]})
+        (recordT (list 'x 'y) (list (numT) (boolT))))
+  (test/exn (parse-type `1)
+            "invalid input"))
+
+;; interp ----------------------------------------
+(define (interp [a : Exp] [env : Env]) : Value
+  (type-case Exp a
+    [(numE n) (numV n)]
+    [(idE s) (lookup s env)]
+    [(plusE l r) (num+ (interp l env) (interp r env))]
+    [(multE l r) (num* (interp l env) (interp r env))]
+    [(lamE n t body)
+     (closV n body env)]
+    [(appE fun arg) (type-case Value (interp fun env)
+                      [(closV n body c-env)
+                       (interp body
+                               (extend-env
+                                (bind n
+                                      (interp arg env))
+                                c-env))]
+                      [else (error 'interp "not a function")])]
+    [(recordE ns as)
+     (recordV ns
+              (map (lambda (a) (interp a env))
+                   as))]
+    [(if0E cnd thn els)
+     (type-case Value (interp cnd env)
+       [(numV n)
+        (cond
+          [(= 0 n) (interp thn env)]
+          [else (interp els env)])]
+       [else (error 'interp "not a number")])]
+    [(getE a n)
+     (type-case Value (interp a env)
+       [(recordV ns vs) (find n ns vs)]
+       [else (error 'interp "not a record")])]
+    [(setE a n v)
+     (type-case Value (interp a env)
+       [(recordV ns vs)
+        (recordV ns (update n (interp v env) ns vs))]
+       [else (error 'interp "not a record")])]))
+
+(define (update [n : Symbol] [v : Value]
+                [ns : (Listof Symbol)] [vs : (Listof Value)]) : (Listof Value)
+  (cond
+    [(empty? ns) (error 'interp "no such field")]
+    [else (if (symbol=? n (first ns))
+              (cons v (rest vs))
+              (cons (first vs) 
+                    (update n v (rest ns) (rest vs))))]))
+
+(module+ test
+  (test (interp (parse `2) mt-env)
+        (numV 2))
+  (test/exn (interp (parse `x) mt-env)
+            "free variable")
+  (test (interp (parse `x) 
+                (extend-env (bind 'x (numV 9)) mt-env))
+        (numV 9))
+  (test (interp (parse `{+ 2 1}) mt-env)
+        (numV 3))
+  (test (interp (parse `{* 2 1}) mt-env)
+        (numV 2))
+  (test (interp (parse `{+ {* 2 3} {+ 5 8}})
+                mt-env)
+        (numV 19))
+  (test (interp (parse `{lambda {[x : num]} {+ x x}})
+                mt-env)
+        (closV 'x (plusE (idE 'x) (idE 'x)) mt-env))
+  (test (interp (parse `{let {[x : num 5]}
+                          {+ x x}})
+                mt-env)
+        (numV 10))
+  (test (interp (parse `{let {[x : num 5]}
+                          {let {[x : num {+ 1 x}]}
+                            {+ x x}}})
+                mt-env)
+        (numV 12))
+  (test (interp (parse `{let {[x : num 5]}
+                          {let {[y : num 6]}
+                            x}})
+                mt-env)
+        (numV 5))
+  (test (interp (parse `{{lambda {[x : num]} {+ x x}} 8})
+                mt-env)
+        (numV 16))
+  
+  (test (interp (parse `{record {x {+ 1 3}}})
+                mt-env)
+        (recordV (list 'x) (list (numV 4))))
+  
+  (test (interp (parse `{get {record {x {+ 1 3}}} x})
+                mt-env)
+        (numV 4))
+
+  (test (interp (parse `{set {record {a {+ 1 1}}
+                                     {b {+ 2 2}}} a 5})
+                mt-env)
+        (recordV (list 'a 'b) 
+                 (list (numV 5) (numV 4))))
+  (test (interp (parse `{set {record {a {+ 1 1}}
+                                     {b {+ 2 2}}} b 5})
+                mt-env)
+        (recordV (list 'a 'b) 
+                 (list (numV 2) (numV 5))))
+  
+  (test (interp (parse `{let {[r1 : {[a : num] [b : num]}
+                                  {record {a {+ 1 1}}
+                                          {b {+ 2 2}}}]}
+                          {let {[r2 : {[a : num] [b : num]}
+                                    {set r1 a 5}]}
+                            {+ {get r1 a} {get r2 a}}}})
+                mt-env)
+        (numV 7))
+  
+  (test/exn (interp (parse `{get 1 x})
+                    mt-env)
+            "not a record")
+  (test/exn (interp (parse `{set 1 x 1})
+                    mt-env)
+            "not a record")
+  (test/exn (interp (parse `{set {record} x 1})
+                    mt-env)
+            "no such field")
+  
+  (test/exn (interp (parse `{1 2}) mt-env)
+            "not a function")
+  (test/exn (interp (parse `{+ 1 {lambda {[x : num]} x}}) mt-env)
+            "not a number")
+  (test/exn (interp (parse `{let {[bad : (num -> num) {lambda {[x : num]} {+ x y}}]}
+                              {let {[y : num 5]}
+                                {bad 2}}})
+                    mt-env)
+            "free variable"))
+
+;; num+ and num* ----------------------------------------
+(define (num-op [op : (Number Number -> Number)] [l : Value] [r : Value]) : Value
+  (cond
+    [(and (numV? l) (numV? r))
+     (numV (op (numV-n l) (numV-n r)))]
+    [else
+     (error 'interp "not a number")]))
+(define (num+ [l : Value] [r : Value]) : Value
+  (num-op + l r))
+(define (num* [l : Value] [r : Value]) : Value
+  (num-op * l r))
+
+(module+ test
+  (test (num+ (numV 1) (numV 2))
+        (numV 3))
+  (test (num* (numV 2) (numV 3))
+        (numV 6)))
+
+;; lookup ----------------------------------------
+(define (make-lookup [name-of : ('a -> Symbol)] [val-of : ('a -> 'b)])
+  (lambda ([name : Symbol] [vals : (Listof 'a)]) : 'b
+          (type-case (Listof 'a) vals
+            [empty (error 'find "free variable")]
+            [(cons val rst-vals) (if (equal? name (name-of val))
+                                     (val-of (first vals))
+                                     ((make-lookup name-of val-of) name rst-vals))])))
+(define lookup
+  (make-lookup bind-name bind-val))
+
+(module+ test
+  (test/exn (lookup 'x mt-env)
+            "free variable")
+  (test (lookup 'x (extend-env (bind 'x (numV 8)) mt-env))
+        (numV 8))
+  (test (lookup 'x (extend-env
+                    (bind 'x (numV 9))
+                    (extend-env (bind 'x (numV 8)) mt-env)))
+        (numV 9))
+  (test (lookup 'y (extend-env
+                    (bind 'x (numV 9))
+                    (extend-env (bind 'y (numV 8)) mt-env)))
+        (numV 8)))
+
+;; typecheck ----------------------------------------
+(define (typecheck [a : Exp] [tenv : Type-Env])
+  (type-case Exp a
+    [(numE n) (numT)]
+    [(plusE l r) (typecheck-nums l r tenv)]
+    [(multE l r) (typecheck-nums l r tenv)]
+    [(idE n) (type-lookup n tenv)]
+    [(lamE n arg-type body)
+     (arrowT arg-type
+             (typecheck body 
+                        (extend-env (tbind n arg-type)
+                                    tenv)))]
+    [(appE fun arg)
+     (type-case Type (typecheck fun tenv)
+       [(arrowT arg-type result-type)
+        (if (subtype? (typecheck arg tenv)
+                      arg-type)
+            result-type
+            (type-error arg
+                        (to-string arg-type)))]
+       [else (type-error fun "function")])]
+    [(recordE ns as)
+     (recordT ns (map (lambda (a) (typecheck a tenv)) as))]
+    [(getE rec-expr field-name)
+     (type-case Type (typecheck rec-expr tenv)
+       [(recordT ns ts)
+        (try (find field-name ns ts)
+             (lambda () (type-error rec-expr "record with field")))]
+       [else (type-error rec-expr "record")])]
+    [(setE r n v)
+     (let ([rec-type (typecheck r tenv)])
+       (type-case Type rec-type
+         [(recordT ns ts)
+          (let ([field-type 
+                 (try (find n ns ts)
+                      (lambda () 
+                        (type-error r "record with field")))])
+            (if (subtype? (typecheck v tenv)
+                          field-type)
+                rec-type
+                (type-error v (to-string field-type))))]
+         [else (type-error r "record")]))]
+    [(if0E cnd thn els)
+     (cond
+       [(subtype? (typecheck cnd tenv) (numT))
+        (let ([thnType (typecheck thn tenv)]
+              [elsType (typecheck els tenv)])
+          (cond
+            [(subtype? elsType thnType)
+              thnType]
+            [(subtype? thnType elsType)
+             elsType]
+            [else (type-error els (to-string thnType))]))]
+       [else (type-error cnd "num")])]))
+
+(define (find [n : Symbol] [ns : (Listof Symbol)] [ts : (Listof 'a)])
+  : 'a
+  (cond
+    [(empty? ns) (error 'interp "no such field")]
+    [else (if (symbol=? n (first ns))
+              (first ts)
+              (find n (rest ns) (rest ts)))]))
+
+(define (typecheck-nums l r tenv)
+  (type-case Type (typecheck l tenv)
+    [(numT)
+     (type-case Type (typecheck r tenv)
+       [(numT) (numT)]
+       [else (type-error r "num")])]
+    [else (type-error l "num")]))
+
+(define (type-error a msg)
+  (error 'typecheck (string-append
+                     "no type: "
+                     (string-append
+                      (to-string a)
+                      (string-append " not "
+                                     msg)))))
+
+(define type-lookup
+  (make-lookup tbind-name tbind-type))
+;;  {get {if0 ....
+;;            {record {x 8}}
+;;            {record {x 9} {y 10}}}
+;;       x}
+
+(module+ test
+  (test (typecheck (parse `{get {if0 0
+                                     {record {x 8}}
+                                     {record {x 9} {y 10}}}
+                                x}) 
+                   mt-env)
+        (numT))
+  (test (typecheck (parse `{get {if0 0
+                                     {record {x 9} {y 10}}
+                                     {record {x 8}}}                                     
+                                x}) 
+                   mt-env)
+        (numT))
+                                     
+  (test (typecheck (parse `{record {x 1}}) mt-env)
+        (recordT (list 'x) (list (numT))))
+  (test (typecheck (parse `{get {record {x 1}} x})
+                   mt-env)
+        (numT))
+  (test/exn (typecheck (parse `{{get {record {x 1}} x} 0})
+                       mt-env)
+            "no type")
+  (test/exn (typecheck (parse `{get {record {x 1}} y})
+                       mt-env)
+            "no type")
+  (test/exn (typecheck (parse `{get 1 y})
+                       mt-env)
+            "no type")
+  (test/exn (typecheck (parse `{set 1 y 1})
+                       mt-env)
+            "no type")
+  
+  (test (typecheck (parse `10) mt-env)
+        (numT))
+  (test (typecheck (parse `{+ 10 17}) mt-env)
+        (numT))
+  (test (typecheck (parse `{* 10 17}) mt-env)
+        (numT))
+  (test (typecheck (parse `{lambda {[x : num]} 12}) mt-env)
+        (arrowT (numT) (numT)))
+  (test (typecheck (parse `{lambda {[x : num]} {lambda {[y : bool]} x}}) mt-env)
+        (arrowT (numT) (arrowT (boolT)  (numT))))
+
+  (test (typecheck (parse `{{lambda {[x : num]} 12}
+                            {+ 1 17}})
+                   mt-env)
+        (numT))
+
+  (test (typecheck (parse `{let {[x : num 4]}
+                             {let {[f : (num -> num)
+                                      {lambda {[y : num]} {+ x y}}]}
+                               {f x}}})
+                   mt-env)
+        (numT))
+  
+  (test (typecheck (parse `{lambda {[r : {[x : num]}]}
+                             {get r x}})
+                   mt-env)
+        (arrowT (recordT (list 'x) (list (numT)))
+                (numT)))
+  (test (typecheck (parse `{{lambda {[r : {[x : num]}]}
+                              {get r x}}
+                            {record {x {+ 1 2}}}})
+                   mt-env)
+        (numT))
+  
+  
+  (test (interp (parse `{{lambda {[r : {[x : num]}]}
+                           {get r x}}
+                         {record {x {+ 1 2}} {y 9}}})
+                mt-env)
+        (numV 3))
+  (test (typecheck (parse `{{lambda {[r : {[x : num]}]}
+                              {get r x}}
+                            {record {x {+ 1 2}} {y 9}}})
+                   mt-env)
+        (numT))
+  (test (typecheck (parse `{{lambda {[r : {[y : num] [x : num]}]}
+                              {get r x}}
+                            {record {x {+ 1 2}} {y 9}}})
+                   mt-env)
+        (numT))
+  (test/exn (typecheck (parse `{{lambda {[r : {[x : num] [y : num]}]}
+                                  {get r x}}
+                                {record {x {+ 1 2}}}})
+                       mt-env)
+            "no type")
+
+  (test (typecheck (parse `{lambda {[r : {[x : num]}]}
+                             {set r x 2}})
+                   mt-env)
+        (arrowT (recordT (list 'x) (list (numT)))
+                (recordT (list 'x) (list (numT)))))
+  (test/exn (typecheck (parse `{lambda {[r : {[x : num]}]}
+                                 {set r x r}})
+                       mt-env)
+            "no type")
+  (test/exn (typecheck (parse `{lambda {[r : {[x : num]}]}
+                                 {set r y 1}})
+                       mt-env)
+            "no type")
+
+  (test (typecheck (parse `{{lambda {[r : {[x : {[y : num]}]}]}
+                              {set r x {record {y 1}
+                                               {z 1}}}}
+                            {record {x {record {y 7}}}}})
+                   mt-env)
+        (recordT (list 'x)
+                 (list (recordT (list 'y) 
+                                (list (numT))))))
+  
+  (test/exn (typecheck (parse `{1 2})
+                       mt-env)
+            "no type")
+  (test/exn (typecheck (parse `{{lambda {[x : bool]} x} 2})
+                       mt-env)
+            "no type")
+  (test/exn (typecheck (parse `{+ 1 {lambda {[x : num]} x}})
+                       mt-env)
+            "no type")
+  (test/exn (typecheck (parse `{* {lambda {[x : num]} x} 1})
+                       mt-env)
+            "no type"))
+
+;; subtype? ----------------------------------------
+(define (subtype? [t1 : Type] [t2 : Type]) : Boolean
+  (type-case Type t1
+    [(numT)
+     (type-case Type t2
+       [(numT) #t]
+       [else #f])]
+    [(boolT)
+     (type-case Type t2
+       [(boolT) #t]
+       [else #f])]
+    [(arrowT l1 r1)
+     (type-case Type t2
+       [(arrowT l2 r2)
+        (and (subtype? l2 l1) ; contravariant
+             (subtype? r1 r2))] ; covariant
+       [else #f])]
+    [(recordT ns1 ts1)
+     (type-case Type t2
+       [(recordT ns2 ts2)
+        ;; Every field in ns2 must be in ns1,
+        ;; and each corresponind type in ts1
+        ;; should be a subtype of the one in ts2
+        (foldl (lambda (n b)
+                 (and b
+                      (member n ns1)
+                      ;; covariant:
+                      (subtype? (find n ns1 ts1)
+                                (find n ns2 ts2))))
+               #t
+               ns2)]
+       [else #f])]))
+
+(module+ test
+  (test (subtype? (numT) (numT))
+        #t)
+  (test (subtype? (numT) (boolT))
+        #f)
+  (test (subtype? (boolT) (boolT))
+        #t)
+  (test (subtype? (boolT) (numT))
+        #f)
+  
+  (test (subtype? (arrowT (numT) (numT))
+                  (arrowT (numT) (numT)))
+        #t)
+  (test (subtype? (arrowT (numT) (boolT))
+                  (arrowT (numT) (numT)))
+        #f)
+  (test (subtype? (arrowT (boolT) (numT))
+                  (arrowT (numT) (numT)))
+        #f)
+  (test (subtype? (arrowT (boolT) (numT))
+                  (numT))
+        #f)
+  
+  (test (subtype? (recordT (list 'x) (list (numT)))
+                  (recordT empty empty))
+        #t)
+  (test (subtype? (recordT empty empty)
+                  (recordT (list 'x) (list (numT))))
+        #f)
+  (test (subtype? (recordT (list 'x)
+                           (list (recordT (list 'y)
+                                          (list (numT)))))
+                  (recordT (list 'x)
+                           (list (recordT empty empty))))
+        #t)
+  
+  (test (subtype? (arrowT (recordT empty empty) 
+                          (recordT (list 'x) (list (numT))))
+                  (arrowT (recordT (list 'x) (list (numT)))
+                          (recordT empty empty)))
+        #t)
+  
+  (test (subtype? (recordT empty empty)
+                  (numT))
+        #f))
+
+#lang plait
+
+;; Like "subtype-if0,rkt", but also allows an expression like
+;;
+;;  {get {if0 ....
+;;            {record {x 8} {z 20}}
+;;            {record {x 9} {y 10}}}
+;;       x}
+;;
+;; since both branches are subtypes of `{[x : num]}`. That
+;; requires a least upper bound calculation, which (due to
+;; contrvariance in arrow types) also requires a greatest lower
+;; bound calculation.
+
+(define-type Value
+  (numV [n : Number])
+  (closV [arg : Symbol]
+         [body : Exp]
+         [env : Env])
+  (recordV [l1 : (Listof Symbol)]
+           [l2 : (Listof Value)]))
+
+(define-type Exp
+  (numE [n : Number])
+  (idE [s : Symbol])
+  (plusE [l : Exp] 
+         [r : Exp])
+  (multE [l : Exp]
+         [r : Exp])
+  (lamE [n : Symbol]
+        [arg-type : Type]
+        [body : Exp])
+  (appE [fun : Exp]
+        [arg : Exp])
+  (recordE [ns : (Listof Symbol)]
+           [args : (Listof Exp)])
+  (getE [rec : Exp]
+        [n : Symbol])
+  (setE [rec : Exp]
+        [n : Symbol]
+        [val : Exp])
+  (if0E [tst : Exp]
+        [thn : Exp]
+        [els : Exp]))
+
+(define-type Type
+  (numT)
+  (boolT)
+  (arrowT [arg : Type]
+          [result : Type])
+  (recordT [names : (Listof Symbol)]
+           [types : (Listof Type)]))
+
+(define-type Binding
+  (bind [name : Symbol]
+        [val : Value]))
+
+(define-type-alias Env (Listof Binding))
+
+(define-type Type-Binding
+  (tbind [name : Symbol]
+         [type : Type]))
+
+(define-type-alias Type-Env (Listof Type-Binding))
+
+(define mt-env empty)
+(define extend-env cons)
+
+(module+ test
+  (print-only-errors #t))
+
+;; parse ----------------------------------------
+(define (parse [s : S-Exp]) : Exp
+  (cond
+    [(s-exp-match? `NUMBER s) (numE (s-exp->number s))]
+    [(s-exp-match? `SYMBOL s) (idE (s-exp->symbol s))]
+    [(s-exp-match? `{+ ANY ANY} s)
+     (plusE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{* ANY ANY} s)
+     (multE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{let {[SYMBOL : ANY ANY]} ANY} s)
+     (let ([bs (s-exp->list (first
+                             (s-exp->list (second
+                                           (s-exp->list s)))))])
+       (appE (lamE (s-exp->symbol (first bs))
+                   (parse-type (third bs))
+                   (parse (third (s-exp->list s))))
+             (parse (fourth bs))))]
+    [(s-exp-match? `{lambda {[SYMBOL : ANY]} ANY} s)
+     (let ([arg (s-exp->list
+                 (first (s-exp->list 
+                         (second (s-exp->list s)))))])
+       (lamE (s-exp->symbol (first arg))
+             (parse-type (third arg))
+             (parse (third (s-exp->list s)))))]
+    [(s-exp-match? `{record {SYMBOL ANY} ...} s)
+     (recordE (map (lambda (l) (s-exp->symbol (first (s-exp->list l))))
+                   (rest (s-exp->list s)))
+              (map (lambda (l) (parse (second (s-exp->list l))))
+                   (rest (s-exp->list s))))]
+    [(s-exp-match? `{get ANY SYMBOL} s)
+     (getE (parse (second (s-exp->list s)))
+           (s-exp->symbol (third (s-exp->list s))))]
+    [(s-exp-match? `{set ANY SYMBOL ANY} s)
+     (setE (parse (second (s-exp->list s)))
+           (s-exp->symbol (third (s-exp->list s)))
+           (parse (fourth (s-exp->list s))))]
+    [(s-exp-match? `{if0 ANY ANY ANY} s)
+     (if0E (parse (second (s-exp->list s)))
+           (parse (third (s-exp->list s)))
+           (parse (fourth (s-exp->list s))))]
+    [(s-exp-match? `{ANY ANY} s)
+     (appE (parse (first (s-exp->list s)))
+           (parse (second (s-exp->list s))))]
+    [else (error 'parse "invalid input")]))
+
+(define (parse-type [s : S-Exp]) : Type
+  (cond
+    [(s-exp-match? `num s) 
+     (numT)]
+    [(s-exp-match? `bool s)
+     (boolT)]
+    [(s-exp-match? `(ANY -> ANY) s)
+     (arrowT (parse-type (first (s-exp->list s)))
+             (parse-type (third (s-exp->list s))))]
+    [(s-exp-match? `{[SYMBOL : ANY] ...} s)
+     (let ([fields (map s-exp->list (s-exp->list s))])
+       (recordT (map s-exp->symbol (map first fields))
+                (map parse-type (map third fields))))]
+    [else (error 'parse-type "invalid input")]))
+
+(module+ test
+  (test (parse `2)
+        (numE 2))
+  (test (parse `x) ; note: backquote instead of normal quote
+        (idE 'x))
+  (test (parse `{+ 2 1})
+        (plusE (numE 2) (numE 1)))
+  (test (parse `{* 3 4})
+        (multE (numE 3) (numE 4)))
+  (test (parse `{+ {* 3 4} 8})
+        (plusE (multE (numE 3) (numE 4))
+               (numE 8)))
+  (test (parse `{let {[x : num {+ 1 2}]}
+                  y})
+        (appE (lamE 'x (numT) (idE 'y))
+              (plusE (numE 1) (numE 2))))
+  (test (parse `{lambda {[x : num]} 9})
+        (lamE 'x (numT) (numE 9)))
+  (test (parse `{double 9})
+        (appE (idE 'double) (numE 9)))
+  (test (parse `{record {x {+ 1 2}} {y 3}})
+        (recordE (list 'x 'y)
+                 (list (plusE (numE 1) (numE 2)) (numE 3))))
+  (test (parse `{get {+ 1 2} a})
+        (getE (plusE (numE 1) (numE 2)) 'a))
+  (test (parse `{set {+ 1 2} a 7})
+        (setE (plusE (numE 1) (numE 2)) 'a (numE 7)))
+  (test/exn (parse `{{+ 1 2}})
+            "invalid input")
+
+  (test (parse-type `num)
+        (numT))
+  (test (parse-type `bool)
+        (boolT))
+  (test (parse-type `(num -> bool))
+        (arrowT (numT) (boolT)))
+  (test (parse-type `{[x : num] [y : bool]})
+        (recordT (list 'x 'y) (list (numT) (boolT))))
+  (test/exn (parse-type `1)
+            "invalid input"))
+
+;; interp ----------------------------------------
+(define (interp [a : Exp] [env : Env]) : Value
+  (type-case Exp a
+    [(numE n) (numV n)]
+    [(idE s) (lookup s env)]
+    [(plusE l r) (num+ (interp l env) (interp r env))]
+    [(multE l r) (num* (interp l env) (interp r env))]
+    [(lamE n t body)
+     (closV n body env)]
+    [(appE fun arg) (type-case Value (interp fun env)
+                      [(closV n body c-env)
+                       (interp body
+                               (extend-env
+                                (bind n
+                                      (interp arg env))
+                                c-env))]
+                      [else (error 'interp "not a function")])]
+    [(recordE ns as)
+     (recordV ns
+              (map (lambda (a) (interp a env))
+                   as))]
+    [(getE a n)
+     (type-case Value (interp a env)
+       [(recordV ns vs) (find n ns vs)]
+       [else (error 'interp "not a record")])]
+    [(setE a n v)
+     (type-case Value (interp a env)
+       [(recordV ns vs)
+        (recordV ns (update n (interp v env) ns vs))]
+       [else (error 'interp "not a record")])]
+    [(if0E t z nz)
+     (let [(n (interp t env))]
+       (if (equal? 0 (numV-n n))
+           (interp z env)
+           (interp nz env)))]))
+
+(define (update [n : Symbol] [v : Value]
+                [ns : (Listof Symbol)] [vs : (Listof Value)]) : (Listof Value)
+  (cond
+    [(empty? ns) (error 'interp "no such field")]
+    [else (if (symbol=? n (first ns))
+              (cons v (rest vs))
+              (cons (first vs) 
+                    (update n v (rest ns) (rest vs))))]))
+
+(module+ test
+  (test (interp (parse `2) mt-env)
+        (numV 2))
+  (test/exn (interp (parse `x) mt-env)
+            "free variable")
+  (test (interp (parse `x) 
+                (extend-env (bind 'x (numV 9)) mt-env))
+        (numV 9))
+  (test (interp (parse `{+ 2 1}) mt-env)
+        (numV 3))
+  (test (interp (parse `{* 2 1}) mt-env)
+        (numV 2))
+  (test (interp (parse `{+ {* 2 3} {+ 5 8}})
+                mt-env)
+        (numV 19))
+  (test (interp (parse `{lambda {[x : num]} {+ x x}})
+                mt-env)
+        (closV 'x (plusE (idE 'x) (idE 'x)) mt-env))
+  (test (interp (parse `{let {[x : num 5]}
+                          {+ x x}})
+                mt-env)
+        (numV 10))
+  (test (interp (parse `{let {[x : num 5]}
+                          {let {[x : num {+ 1 x}]}
+                            {+ x x}}})
+                mt-env)
+        (numV 12))
+  (test (interp (parse `{let {[x : num 5]}
+                          {let {[y : num 6]}
+                            x}})
+                mt-env)
+        (numV 5))
+  (test (interp (parse `{{lambda {[x : num]} {+ x x}} 8})
+                mt-env)
+        (numV 16))
+  
+  (test (interp (parse `{record {x {+ 1 3}}})
+                mt-env)
+        (recordV (list 'x) (list (numV 4))))
+  
+  (test (interp (parse `{get {record {x {+ 1 3}}} x})
+                mt-env)
+        (numV 4))
+
+  (test (interp (parse `{set {record {a {+ 1 1}}
+                                     {b {+ 2 2}}} a 5})
+                mt-env)
+        (recordV (list 'a 'b) 
+                 (list (numV 5) (numV 4))))
+  (test (interp (parse `{set {record {a {+ 1 1}}
+                                     {b {+ 2 2}}} b 5})
+                mt-env)
+        (recordV (list 'a 'b) 
+                 (list (numV 2) (numV 5))))
+  
+  (test (interp (parse `{let {[r1 : {[a : num] [b : num]}
+                                  {record {a {+ 1 1}}
+                                          {b {+ 2 2}}}]}
+                          {let {[r2 : {[a : num] [b : num]}
+                                    {set r1 a 5}]}
+                            {+ {get r1 a} {get r2 a}}}})
+                mt-env)
+        (numV 7))
+
+  (test (interp (parse `{if0 0 1 2})
+                mt-env)
+        (numV 1))
+  
+  (test (interp (parse `{get {if0 0
+                                  {record {x 8}}
+                                  {record {x 9} {y 10}}}
+                             x})
+                mt-env)
+        (numV 8))
+  
+  (test (interp (parse `{get {if0 1
+                                  {record {x 8}}
+                                  {record {x 9} {y 10}}}
+                             x})
+                mt-env)
+        (numV 9))
+  
+  (test/exn (interp (parse `{get 1 x})
+                    mt-env)
+            "not a record")
+  (test/exn (interp (parse `{set 1 x 1})
+                    mt-env)
+            "not a record")
+  (test/exn (interp (parse `{set {record} x 1})
+                    mt-env)
+            "no such field")
+  
+  (test/exn (interp (parse `{1 2}) mt-env)
+            "not a function")
+  (test/exn (interp (parse `{+ 1 {lambda {[x : num]} x}}) mt-env)
+            "not a number")
+  (test/exn (interp (parse `{let {[bad : (num -> num) {lambda {[x : num]} {+ x y}}]}
+                              {let {[y : num 5]}
+                                {bad 2}}})
+                    mt-env)
+            "free variable"))
+
+;; num+ and num* ----------------------------------------
+(define (num-op [op : (Number Number -> Number)] [l : Value] [r : Value]) : Value
+  (cond
+    [(and (numV? l) (numV? r))
+     (numV (op (numV-n l) (numV-n r)))]
+    [else
+     (error 'interp "not a number")]))
+(define (num+ [l : Value] [r : Value]) : Value
+  (num-op + l r))
+(define (num* [l : Value] [r : Value]) : Value
+  (num-op * l r))
+
+(module+ test
+  (test (num+ (numV 1) (numV 2))
+        (numV 3))
+  (test (num* (numV 2) (numV 3))
+        (numV 6)))
+
+;; lookup ----------------------------------------
+(define (make-lookup [name-of : ('a -> Symbol)] [val-of : ('a -> 'b)])
+  (lambda ([name : Symbol] [vals : (Listof 'a)]) : 'b
+          (cond
+            [(empty? vals)
+             (error 'find "free variable")]
+            [else (if (equal? name (name-of (first vals)))
+                      (val-of (first vals))
+                      ((make-lookup name-of val-of) name (rest vals)))])))
+
+(define lookup
+  (make-lookup bind-name bind-val))
+
+(module+ test
+  (test/exn (lookup 'x mt-env)
+            "free variable")
+  (test (lookup 'x (extend-env (bind 'x (numV 8)) mt-env))
+        (numV 8))
+  (test (lookup 'x (extend-env
+                    (bind 'x (numV 9))
+                    (extend-env (bind 'x (numV 8)) mt-env)))
+        (numV 9))
+  (test (lookup 'y (extend-env
+                    (bind 'x (numV 9))
+                    (extend-env (bind 'y (numV 8)) mt-env)))
+        (numV 8)))
+
+;; typecheck ----------------------------------------
+(define (typecheck [a : Exp] [tenv : Type-Env])
+  (type-case Exp a
+    [(numE n) (numT)]
+    [(plusE l r) (typecheck-nums l r tenv)]
+    [(multE l r) (typecheck-nums l r tenv)]
+    [(idE n) (type-lookup n tenv)]
+    [(lamE n arg-type body)
+     (arrowT arg-type
+             (typecheck body 
+                        (extend-env (tbind n arg-type)
+                                    tenv)))]
+    [(appE fun arg)
+     (type-case Type (typecheck fun tenv)
+       [(arrowT arg-type result-type)
+        (if (subtype? (typecheck arg tenv)
+                      arg-type)
+            result-type
+            (type-error arg
+                        (to-string arg-type)))]
+       [else (type-error fun "function")])]
+    [(recordE ns as)
+     (recordT ns (map (lambda (a) (typecheck a tenv)) as))]
+    [(getE rec-expr field-name)
+     (type-case Type (typecheck rec-expr tenv)
+       [(recordT ns ts)
+        (try (find field-name ns ts)
+             (lambda () (type-error rec-expr "record with field")))]
+       [else (type-error rec-expr "record")])]
+    [(setE r n v)
+     (let ([rec-type (typecheck r tenv)])
+       (type-case Type rec-type
+         [(recordT ns ts)
+          (let ([field-type 
+                 (try (find n ns ts)
+                      (lambda () 
+                        (type-error r "record with field")))])
+            (if (subtype? (typecheck v tenv)
+                          field-type)
+                rec-type
+                (type-error v (to-string field-type))))]
+         [else (type-error r "record")]))]
+    [(if0E t z nz)
+     (let ([t-type (typecheck t tenv)]
+           [z-type (typecheck z tenv)]
+           [nz-type (typecheck nz tenv)])
+       (type-case Type t-type
+         [(numT)
+          (least-upper-bound a z-type nz-type)]
+         [else (type-error t "number")]))]))
+
+;; least-upper and greatest-lower type bounds ----------------------------------------
+
+(define (least-upper-bound [e : Exp] [a-type : Type] [b-type : Type]) : Type
+  (type-case Type a-type
+    [(numT)
+     (type-case Type b-type
+       [(numT) (numT)]
+       [else (type-error e "doesn't match")])]
+    [(boolT)
+     (type-case Type b-type
+       [(boolT) (boolT)]
+       [else (type-error e "doesn't match")])]
+    [(recordT a-names a-types)
+     (type-case Type b-type
+       [(recordT b-names b-types)
+        (foldl2 (lambda (a-name a-type result-t)
+                  (try (let ([b-type (find a-name b-names b-types)])
+                         (recordT (cons a-name
+                                        (recordT-names result-t))
+                                  (cons (least-upper-bound e a-type b-type)
+                                        (recordT-types result-t))))
+                       (lambda ()
+                         ;; Not found or no least upper bound:
+                         result-t)))
+                (recordT empty empty)
+                a-names a-types)]
+       [else (type-error e "doesn't match")])]
+    [(arrowT a-arg a-result)
+     (type-case Type b-type
+       [(arrowT b-arg b-result)
+        (arrowT (greatest-lower-bound e a-arg b-arg)
+                (least-upper-bound e a-result b-result))]
+       [else (type-error e "doesn't match")])]))
+
+(define (greatest-lower-bound [e : Exp] [a-type : Type] [b-type : Type]) : Type
+  (type-case Type a-type
+    [(numT)
+     (type-case Type b-type
+       [(numT) (numT)]
+       [else (type-error e "doesn't match")])]
+    [(boolT)
+     (type-case Type b-type
+       [(boolT) (boolT)]
+       [else (type-error e "doesn't match")])]
+    [(recordT a-names a-types)
+     (type-case Type b-type
+       [(recordT b-names b-types)
+        (foldl (lambda (name result-t)
+                 (let ([a-type (try (find name a-names a-types)
+                                    ;; not found => use type from b:
+                                    (lambda () (find name b-names b-types)))]
+                       [b-type (try (find name b-names b-types)
+                                    ;; not found => use type from a:
+                                    (lambda () (find name a-names a-types)))])
+                   ;; If greatest lower bound fails, then there isn't one overall:
+                   (recordT (cons name
+                                  (recordT-names result-t))
+                            (cons (greatest-lower-bound e a-type b-type)
+                                  (recordT-types result-t)))))
+               (recordT empty empty)
+               (append-distinct a-names b-names))]
+       [else (type-error e "doesn't match")])]
+    [(arrowT a-arg a-result)
+     (type-case Type b-type
+       [(arrowT b-arg b-result)
+        (arrowT (least-upper-bound e a-arg b-arg)
+                (greatest-lower-bound e a-result b-result))]
+       [else (type-error e "doesn't match")])]))
+
+(module+ test
+  (test (least-upper-bound (idE 'x) (numT) (numT))
+        (numT))
+  (test (least-upper-bound (idE 'x) (boolT) (boolT))
+        (boolT))
+  (test/exn (least-upper-bound (idE 'x) (numT) (boolT))
+            "no type")
+  (test/exn (least-upper-bound (idE 'x) (boolT) (numT))
+            "no type")
+  (test/exn (least-upper-bound (idE 'x)
+                               (arrowT (numT) (boolT))
+                               (arrowT (boolT) (numT)))
+            "no type")
+  (test (least-upper-bound (idE 'x)
+                           (arrowT (numT) (boolT))
+                           (arrowT (numT) (boolT)))
+        (arrowT (numT) (boolT)))
+  (test/exn (least-upper-bound (idE 'x)
+                               (arrowT (numT) (boolT))
+                               (numT))
+            "no type")
+  (test/exn (least-upper-bound (idE 'x)
+                               (arrowT (numT) (boolT))
+                               (boolT))
+            "no type")
+  (test/exn (least-upper-bound (idE 'x)
+                               (numT)
+                               (arrowT (numT) (boolT)))
+            "no type")
+  (test/exn (least-upper-bound (idE 'x)
+                               (boolT)
+                               (arrowT (numT) (boolT)))
+            "no type")
+  (test (least-upper-bound (idE 'x)
+                           (recordT empty empty)
+                           (recordT (list 'x) (list (numT))))
+        (recordT empty empty))
+  (test (least-upper-bound (idE 'x)
+                           (recordT (list 'x 'y) (list (numT) (numT)))
+                           (recordT (list 'x 'z) (list (numT) (numT))))
+        (recordT (list 'x)
+                 (list (numT))))
+  (test (least-upper-bound (idE 'x)
+                           (recordT (list 'x 'y) (list (boolT) (boolT)))
+                           (recordT (list 'x 'z) (list (numT) (numT))))
+        (recordT empty empty))
+  (test (least-upper-bound (idE 'x)
+                           (recordT (list 'x)
+                                    (list (recordT (list 'x) (list (numT)))))
+                           (recordT (list 'x)
+                                    (list (recordT (list 'y) (list (boolT))))))
+        (recordT (list 'x)
+                 (list (recordT empty empty))))
+  ;; check contravariance and covariance:
+  (test (least-upper-bound (idE 'x)
+                           (arrowT (recordT (list 'x)
+                                            (list (numT)))
+                                   (recordT (list 'z)
+                                            (list (numT))))
+                           (arrowT (recordT (list 'y)
+                                            (list (boolT)))
+                                   (recordT (list 'z)
+                                            (list (boolT)))))
+        (arrowT (recordT (list 'y 'x)
+                         (list (boolT) (numT)))
+                (recordT empty empty)))
+  (test/exn (least-upper-bound (idE 'x)
+                               (arrowT (recordT (list 'x)
+                                                (list (numT)))
+                                       (numT))
+                               (arrowT (recordT (list 'x)
+                                                (list (boolT)))
+                                       (numT)))
+            "no type")
+
+  (test (greatest-lower-bound (idE 'x) (numT) (numT))
+        (numT))
+  (test (greatest-lower-bound (idE 'x) (boolT) (boolT))
+        (boolT))
+  (test/exn (greatest-lower-bound (idE 'x) (numT) (boolT))
+            "no type")
+  (test/exn (greatest-lower-bound (idE 'x) (boolT) (numT))
+            "no type")
+  (test (greatest-lower-bound (idE 'x)
+                              (recordT empty empty)
+                              (recordT (list 'x) (list (numT))))
+        (recordT (list 'x) (list (numT))))
+  (test (greatest-lower-bound (idE 'x)
+                              (recordT (list 'x 'y) (list (numT) (numT)))
+                              (recordT (list 'x 'z) (list (numT) (numT))))
+        (recordT (list 'z 'x 'y)
+                 (list (numT) (numT) (numT))))
+  (test/exn (greatest-lower-bound (idE 'x) (recordT empty empty) (boolT))
+            "no type")
+  (test (greatest-lower-bound (idE 'x)
+                              (arrowT (numT) (boolT))
+                              (arrowT (numT) (boolT)))
+        (arrowT (numT) (boolT)))
+  (test/exn (greatest-lower-bound (idE 'x) (arrowT (numT) (numT)) (boolT))
+            "no type"))
+
+(define (find [n : Symbol] [ns : (Listof Symbol)] [ts : (Listof 'a)])
+  : 'a
+  (cond
+    [(empty? ns) (error 'interp "no such field")]
+    [else (if (symbol=? n (first ns))
+              (first ts)
+              (find n (rest ns) (rest ts)))]))
+
+(define (typecheck-nums l r tenv)
+  (type-case Type (typecheck l tenv)
+    [(numT)
+     (type-case Type (typecheck r tenv)
+       [(numT) (numT)]
+       [else (type-error r "num")])]
+    [else (type-error l "num")]))
+
+(define (type-error a msg)
+  (error 'typecheck (string-append
+                     "no type: "
+                     (string-append
+                      (to-string a)
+                      (string-append " not "
+                                     msg)))))
+
+(define type-lookup
+  (make-lookup tbind-name tbind-type))
+
+(module+ test
+  (test (typecheck (parse `{record {x 1}}) mt-env)
+        (recordT (list 'x) (list (numT))))
+  (test (typecheck (parse `{get {record {x 1}} x})
+                   mt-env)
+        (numT))
+  (test/exn (typecheck (parse `{{get {record {x 1}} x} 0})
+                       mt-env)
+            "no type")
+  (test/exn (typecheck (parse `{get {record {x 1}} y})
+                       mt-env)
+            "no type")
+  (test/exn (typecheck (parse `{get 1 y})
+                       mt-env)
+            "no type")
+  (test/exn (typecheck (parse `{set 1 y 1})
+                       mt-env)
+            "no type")
+  
+  (test (typecheck (parse `10) mt-env)
+        (numT))
+  (test (typecheck (parse `{+ 10 17}) mt-env)
+        (numT))
+  (test (typecheck (parse `{* 10 17}) mt-env)
+        (numT))
+  (test (typecheck (parse `{lambda {[x : num]} 12}) mt-env)
+        (arrowT (numT) (numT)))
+  (test (typecheck (parse `{lambda {[x : num]} {lambda {[y : bool]} x}}) mt-env)
+        (arrowT (numT) (arrowT (boolT)  (numT))))
+
+  (test (typecheck (parse `{{lambda {[x : num]} 12}
+                            {+ 1 17}})
+                   mt-env)
+        (numT))
+
+  (test (typecheck (parse `{let {[x : num 4]}
+                             {let {[f : (num -> num)
+                                      {lambda {[y : num]} {+ x y}}]}
+                               {f x}}})
+                   mt-env)
+        (numT))
+  
+  (test (typecheck (parse `{lambda {[r : {[x : num]}]}
+                             {get r x}})
+                   mt-env)
+        (arrowT (recordT (list 'x) (list (numT)))
+                (numT)))
+  (test (typecheck (parse `{{lambda {[r : {[x : num]}]}
+                              {get r x}}
+                            {record {x {+ 1 2}}}})
+                   mt-env)
+        (numT))
+  
+  
+  (test (interp (parse `{{lambda {[r : {[x : num]}]}
+                           {get r x}}
+                         {record {x {+ 1 2}} {y 9}}})
+                mt-env)
+        (numV 3))
+  (test (typecheck (parse `{{lambda {[r : {[x : num]}]}
+                              {get r x}}
+                            {record {x {+ 1 2}} {y 9}}})
+                   mt-env)
+        (numT))
+  (test (typecheck (parse `{{lambda {[r : {[y : num] [x : num]}]}
+                              {get r x}}
+                            {record {x {+ 1 2}} {y 9}}})
+                   mt-env)
+        (numT))
+  (test/exn (typecheck (parse `{{lambda {[r : {[x : num] [y : num]}]}
+                                  {get r x}}
+                                {record {x {+ 1 2}}}})
+                       mt-env)
+            "no type")
+
+  (test (typecheck (parse `{lambda {[r : {[x : num]}]}
+                             {set r x 2}})
+                   mt-env)
+        (arrowT (recordT (list 'x) (list (numT)))
+                (recordT (list 'x) (list (numT)))))
+  (test/exn (typecheck (parse `{lambda {[r : {[x : num]}]}
+                                 {set r x r}})
+                       mt-env)
+            "no type")
+  (test/exn (typecheck (parse `{lambda {[r : {[x : num]}]}
+                                 {set r y 1}})
+                       mt-env)
+            "no type")
+
+  (test (typecheck (parse `{{lambda {[r : {[x : {[y : num]}]}]}
+                              {set r x {record {y 1}
+                                               {z 1}}}}
+                            {record {x {record {y 7}}}}})
+                   mt-env)
+        (recordT (list 'x)
+                 (list (recordT (list 'y) 
+                                (list (numT))))))
+
+  (test (typecheck (parse `{if0 0 1 2})
+                   mt-env)
+        (numT))
+  
+  (test (typecheck (parse `{get {if0 0
+                                     {record {x 8}}
+                                     {record {x 9} {y 10}}}
+                                x})
+                   mt-env)
+        (numT))
+  
+  (test (typecheck (parse `{get {if0 1
+                                     {record {x 8}}
+                                     {record {x 9} {y 10}}}
+                                x})
+                   mt-env)
+        (numT))  
+  
+  (test (typecheck (parse `{if0 1
+                                {record {x 8}}
+                                {record {x 9} {y 10}}})
+                   mt-env)
+        (recordT (list 'x)
+                 (list (numT))))
+
+  (test (typecheck (parse `{if0 1
+                                {record {x 8} {z 11}}
+                                {record {x 9} {y 10}}})
+                   mt-env)
+        (recordT (list 'x)
+                 (list (numT))))
+
+  (test/exn (typecheck (parse `{if0 {0 0} 1 2})
+                       mt-env)
+            "no type")
+  (test/exn (typecheck (parse `{if0 {lambda {[x : num]} x} 1 2})
+                       mt-env)
+            "no type")
+
+  (test/exn (typecheck (parse `{if0 0 {record {x 8}} 2})
+                       mt-env)
+            "no type")
+  
+  (test/exn (typecheck (parse `{1 2})
+                       mt-env)
+            "no type")
+  (test/exn (typecheck (parse `{{lambda {[x : bool]} x} 2})
+                       mt-env)
+            "no type")
+  (test/exn (typecheck (parse `{+ 1 {lambda {[x : num]} x}})
+                       mt-env)
+            "no type")
+  (test/exn (typecheck (parse `{* {lambda {[x : num]} x} 1})
+                       mt-env)
+            "no type"))
+
+;; subtype? ----------------------------------------
+(define (subtype? [t1 : Type] [t2 : Type]) : Boolean
+  (type-case Type t1
+    [(numT)
+     (type-case Type t2
+       [(numT) #t]
+       [else #f])]
+    [(boolT)
+     (type-case Type t2
+       [(boolT) #t]
+       [else #f])]
+    [(arrowT l1 r1)
+     (type-case Type t2
+       [(arrowT l2 r2)
+        (and (subtype? l2 l1) ; contravariant
+             (subtype? r1 r2))] ; covariant
+       [else #f])]
+    [(recordT ns1 ts1)
+     (type-case Type t2
+       [(recordT ns2 ts2)
+        ;; Every field in ns2 must be in ns1,
+        ;; and each corresponind type in ts1
+        ;; should be a subtype of the one in ts2
+        (foldl (lambda (n b)
+                 (and b
+                      (member n ns1)
+                      ;; covariant:
+                      (subtype? (find n ns1 ts1)
+                                (find n ns2 ts2))))
+               #t
+               ns2)]
+       [else #f])]))
+
+(module+ test
+  (test (subtype? (numT) (numT))
+        #t)
+  (test (subtype? (numT) (boolT))
+        #f)
+  (test (subtype? (boolT) (boolT))
+        #t)
+  (test (subtype? (boolT) (numT))
+        #f)
+  
+  (test (subtype? (arrowT (numT) (numT))
+                  (arrowT (numT) (numT)))
+        #t)
+  (test (subtype? (arrowT (numT) (boolT))
+                  (arrowT (numT) (numT)))
+        #f)
+  (test (subtype? (arrowT (boolT) (numT))
+                  (arrowT (numT) (numT)))
+        #f)
+  (test (subtype? (arrowT (boolT) (numT))
+                  (numT))
+        #f)
+  
+  (test (subtype? (recordT (list 'x) (list (numT)))
+                  (recordT empty empty))
+        #t)
+  (test (subtype? (recordT empty empty)
+                  (recordT (list 'x) (list (numT))))
+        #f)
+  (test (subtype? (recordT (list 'x)
+                           (list (recordT (list 'y)
+                                          (list (numT)))))
+                  (recordT (list 'x)
+                           (list (recordT empty empty))))
+        #t)
+  
+  (test (subtype? (arrowT (recordT empty empty) 
+                          (recordT (list 'x) (list (numT))))
+                  (arrowT (recordT (list 'x) (list (numT)))
+                          (recordT empty empty)))
+        #t)
+  
+  (test (subtype? (recordT empty empty)
+                  (numT))
+        #f))
+
+;; ----------------------------------------
+
+(define (foldl2 f v l1 l2)
+  (cond
+    [(and (empty? l1) (empty? l2)) v]
+    [(or (empty? l1) (empty? l2))
+     (error 'foldl2 "lists have different lengths")]
+    [else (foldl2 f (f (first l1) (first l2) v)
+                  (rest l1)
+                  (rest l2))]))
+
+(define (append-distinct [l1 : (Listof Symbol)] [l2 : (Listof Symbol)]) : (Listof Symbol)
+  (cond
+    [(empty? l1) l2]
+    [else (if (member (first l1) l2)
+              (append-distinct (rest l1) l2)
+              (cons (first l1) (append-distinct (rest l1) l2)))]))
+
+(module+ test
+  (test/exn (foldl2 (lambda (x y z) z) 0 (list 'a) (list 'a 'b))
+            "different lengths")
+  
+  (test (append-distinct empty empty)
+        empty)
+  (test (append-distinct (list 'a 'b 'c) (list 'd 'e 'f))
+        (list 'a 'b 'c 'd 'e 'f))
+  (test (append-distinct (list 'd 'a 'd 'b 'e 'c 'f) (list 'd 'e 'f))
+        (list 'a 'b 'c 'd 'e 'f)))
+        
 ______________
 
 
@@ -8188,14 +9703,748 @@ Rules break when you do imparative updates to records.
 
 
 
+Typed Recursion **********************************************
+
+__Class Demo__
+
+
+______________
+
+
+__Notes__
+
+
+Parametric Polymorphism **************************************
+
+__Class Demo__
+
+#lang plait ;;;;;;;;;;;;;;;;;;;;;;
+
+;; Start with "poly-lambda.rkt"
+;;
+;; Add the usual `box`, `unbox`, and `set-box!` forms
+;;  - using Plait boxes
+;;  - with suitable type checking
+
+(define-type Value
+  (numV [n : Number])
+  (closV [arg : Symbol]
+         [body : Exp]
+         [env : Env])
+  (polyV [body : Exp]
+         [env : Env])
+  (boxV [b : (Boxof Value)]))
+
+(define-type Exp
+  (numE [n : Number])
+  (idE [s : Symbol])
+  (plusE [l : Exp] 
+         [r : Exp])
+  (multE [l : Exp]
+         [r : Exp])
+  (lamE [n : Symbol]
+        [arg-type : Type]
+        [body : Exp])
+  (appE [fun : Exp]
+        [arg : Exp])
+  (tylamE [n : Symbol]
+          [body : Exp])
+  (tyappE [tyfun : Exp]
+          [tyarg : Type])
+  (boxE [val : Exp])
+  (unboxE [b : Exp])
+  (set-box!E [b : Exp]
+             [v : Exp]))
+
+(define-type Type
+  (numT)
+  (boolT)
+  (arrowT [arg : Type]
+          [result : Type])
+  (idT [n : Symbol])
+  (forallT [n : Symbol]
+           [body : Type])
+  (boxofT [t : Type]))
+
+(define-type Binding
+  (bind [name : Symbol]
+        [val : Value]))
+
+(define-type-alias Env (Listof Binding))
+
+(define-type Type-Binding
+  (tbind [name : Symbol]
+         [type : Type])
+  (tvar [name : Symbol]))
+
+(define-type-alias Type-Env (Listof Type-Binding))
+
+(define mt-env empty)
+(define extend-env cons)
+
+(module+ test
+  (print-only-errors #t))
+
+;; parse ----------------------------------------
+(define (parse [s : S-Exp]) : Exp
+  (cond
+    [(s-exp-match? `NUMBER s) (numE (s-exp->number s))]
+    [(s-exp-match? `SYMBOL s) (idE (s-exp->symbol s))]
+    [(s-exp-match? `{+ ANY ANY} s)
+     (plusE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{* ANY ANY} s)
+     (multE (parse (second (s-exp->list s)))
+            (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{let {[SYMBOL : ANY ANY]} ANY} s)
+     (let ([bs (s-exp->list (first
+                             (s-exp->list (second
+                                           (s-exp->list s)))))])
+       (appE (lamE (s-exp->symbol (first bs))
+                   (parse-type (third bs))
+                   (parse (third (s-exp->list s))))
+             (parse (fourth bs))))]
+    [(s-exp-match? `{lambda {[SYMBOL : ANY]} ANY} s)
+     (let ([arg (s-exp->list
+                 (first (s-exp->list 
+                         (second (s-exp->list s)))))])
+       (lamE (s-exp->symbol (first arg))
+             (parse-type (third arg))
+             (parse (third (s-exp->list s)))))]
+    [(s-exp-match? `[LAMBDA ['SYMBOL] ANY] s)
+     (tylamE (s-exp->symbol
+              (second
+               (s-exp->list 
+                (first
+                 (s-exp->list (second (s-exp->list s)))))))
+             (parse (third (s-exp->list s))))]
+    [(s-exp-match? `[@ ANY ANY] s)
+     (tyappE (parse (second (s-exp->list s)))
+             (parse-type (third (s-exp->list s))))]
+    [(s-exp-match? `{box ANY} s)
+     (boxE (parse (second (s-exp->list s))))]
+    [(s-exp-match? `{unbox ANY} s)
+     (unboxE (parse (second (s-exp->list s))))]
+    [(s-exp-match? `{set-box! ANY ANY} s)
+     (set-box!E (parse (second (s-exp->list s)))
+                (parse (third (s-exp->list s))))]
+    [(s-exp-match? `{ANY ANY} s)
+     (appE (parse (first (s-exp->list s)))
+           (parse (second (s-exp->list s))))]
+    [else (error 'parse "invalid input")]))
+
+(define (parse-type [s : S-Exp]) : Type
+  (cond
+    [(s-exp-match? `num s) 
+     (numT)]
+    [(s-exp-match? `bool s)
+     (boolT)]
+    [(s-exp-match? `(ANY -> ANY) s)
+     (arrowT (parse-type (first (s-exp->list s)))
+             (parse-type (third (s-exp->list s))))]
+    [(s-exp-match? `'SYMBOL s) ; ''SYMBOL is equivalent to '(quote SYMBOL)
+     (idT (s-exp->symbol (second (s-exp->list s))))]
+    [(s-exp-match? `(forall ('SYMBOL) ANY) s)
+     (forallT (s-exp->symbol
+               (second (s-exp->list 
+                        (first (s-exp->list 
+                                (second (s-exp->list s)))))))
+              (parse-type (third (s-exp->list s))))]
+    [else (error 'parse-type "invalid input")]))
+
+(module+ test
+  (test (parse `2)
+        (numE 2))
+  (test (parse `x) ; note: backquote instead of normal quote
+        (idE 'x))
+  (test (parse `{+ 2 1})
+        (plusE (numE 2) (numE 1)))
+  (test (parse `{* 3 4})
+        (multE (numE 3) (numE 4)))
+  (test (parse `{+ {* 3 4} 8})
+        (plusE (multE (numE 3) (numE 4))
+               (numE 8)))
+  (test (parse `{let {[x : num {+ 1 2}]}
+                  y})
+        (appE (lamE 'x (numT) (idE 'y))
+              (plusE (numE 1) (numE 2))))
+  (test (parse `{lambda {[x : num]} 9})
+        (lamE 'x (numT) (numE 9)))
+  (test (parse `{double 9})
+        (appE (idE 'double) (numE 9)))
+  (test (parse `[LAMBDA ['a]
+                  {lambda {[x : 'a]}
+                    x}])
+        (tylamE 'a (lamE 'x (idT 'a) (idE 'x))))
+  (test (parse `[@ f num])
+        (tyappE (idE 'f) (numT)))
+  (test/exn (parse `{{+ 1 2}})
+            "invalid input")
+
+  (test (parse-type `num)
+        (numT))
+  (test (parse-type `bool)
+        (boolT))
+  (test (parse-type `(num -> bool))
+        (arrowT (numT) (boolT)))
+  (test (parse-type `'a)
+        (idT 'a))
+  (test (parse-type `(forall ('a) ('a -> 'a)))
+        (forallT 'a (arrowT (idT 'a) (idT 'a))))
+  (test/exn (parse-type `1)
+            "invalid input"))
+
+;; interp ----------------------------------------
+(define (interp [a : Exp] [env : Env]) : Value
+  (type-case Exp a
+    [(numE n) (numV n)]
+    [(idE s) (lookup s env)]
+    [(plusE l r) (num+ (interp l env) (interp r env))]
+    [(multE l r) (num* (interp l env) (interp r env))]
+    [(boxE v) (boxV (box (interp v env)))]
+    [(unboxE v)
+     (type-case Value (interp v env)
+       [(boxV b) (unbox b)]
+       [else (error 'interp "not a box")])]
+    [(set-box!E b v)
+     (type-case Value (interp b env)
+       [(boxV b) (let ([new-val (interp v env)])
+                   (begin
+                     (set-box! b new-val)
+                     new-val))]
+       [else (error 'interp "not a box")])]
+    [(lamE n t body)
+     (closV n body env)]
+    [(appE fun arg) (type-case Value (interp fun env)
+                      [(closV n body c-env)
+                       (interp body
+                               (extend-env
+                                (bind n
+                                      (interp arg env))
+                                c-env))]
+                      [else (error 'interp "not a function")])]
+    [(tylamE n body)
+     (polyV body env)]
+    [(tyappE tyfun tyarg)
+     (type-case Value (interp tyfun env)
+       [(polyV body p-env)
+        (interp body p-env)]
+       [else (error 'interp "not a polymorphic value")])]))
+
+(module+ test
+  (test (interp (parse `2) mt-env)
+        (numV 2))
+  (test/exn (interp (parse `x) mt-env)
+            "free variable")
+  (test (interp (parse `x) 
+                (extend-env (bind 'x (numV 9)) mt-env))
+        (numV 9))
+  (test (interp (parse `{+ 2 1}) mt-env)
+        (numV 3))
+  (test (interp (parse `{* 2 1}) mt-env)
+        (numV 2))
+  (test (interp (parse `{+ {* 2 3} {+ 5 8}})
+                mt-env)
+        (numV 19))
+  (test (interp (parse `{lambda {[x : num]} {+ x x}})
+                mt-env)
+        (closV 'x (plusE (idE 'x) (idE 'x)) mt-env))
+  (test (interp (parse `{let {[x : num 5]}
+                          {+ x x}})
+                mt-env)
+        (numV 10))
+  (test (interp (parse `{let {[x : num 5]}
+                          {let {[x : num {+ 1 x}]}
+                            {+ x x}}})
+                mt-env)
+        (numV 12))
+  (test (interp (parse `{let {[x : num 5]}
+                          {let {[y : num 6]}
+                            x}})
+                mt-env)
+        (numV 5))
+  (test (interp (parse `{{lambda {[x : num]} {+ x x}} 8})
+                mt-env)
+        (numV 16))
+
+  (test (interp (parse `[LAMBDA ['a]
+                          {lambda {[x : 'a]}
+                            x}])
+                mt-env)
+        (polyV (lamE 'x (idT 'a) (idE 'x)) mt-env))
+  (test (interp (parse `[@ [LAMBDA ['a]
+                             {lambda {[x : 'a]}
+                               x}]
+                           num])
+                mt-env)
+        (closV 'x (idE 'x) mt-env))
+  (test (interp (parse `{let {[f : (forall ('a) ('a -> 'a))
+                                 [LAMBDA ['a]
+                                   {lambda {[x : 'a]}
+                                     x}]]}
+                          {+ {[@ f num] 1}
+                             {{[@ f (num -> num)]
+                               {lambda {[n : num]} {+ n 1}}}
+                              2}}})
+                mt-env)
+        (numV 4))
+
+  (test/exn (interp (parse `{1 2}) mt-env)
+            "not a function")
+  (test/exn (interp (parse `{+ 1 {lambda {[x : num]} x}}) mt-env)
+            "not a number")
+  (test/exn (interp (parse `{let {[bad : (num -> num) {lambda {[x : num]} {+ x y}}]}
+                              {let {[y : num 5]}
+                                {bad 2}}})
+                    mt-env)
+            "free variable")
+  (test/exn (interp (parse `[@ 1 num]) mt-env)
+            "not a polymorphic value"))
+
+;; num+ and num* ----------------------------------------
+(define (num-op [op : (Number Number -> Number)] [l : Value] [r : Value]) : Value
+  (cond
+    [(and (numV? l) (numV? r))
+     (numV (op (numV-n l) (numV-n r)))]
+    [else
+     (error 'interp "not a number")]))
+(define (num+ [l : Value] [r : Value]) : Value
+  (num-op + l r))
+(define (num* [l : Value] [r : Value]) : Value
+  (num-op * l r))
+
+(module+ test
+  (test (num+ (numV 1) (numV 2))
+        (numV 3))
+  (test (num* (numV 2) (numV 3))
+        (numV 6)))
+
+;; lookup ----------------------------------------
+(define (make-lookup [check? : ('a -> Boolean)] [name-of : ('a -> Symbol)] [val-of : ('a -> 'b)])
+  (lambda ([name : Symbol] [vals : (Listof 'a)]) : 'b
+          (cond
+            [(empty? vals)
+             (error 'find "free variable")]
+            [else (if (and (check? (first vals))
+                           (equal? name (name-of (first vals))))
+                      (val-of (first vals))
+                      ((make-lookup check? name-of val-of) name (rest vals)))])))
+
+(define lookup
+  (make-lookup bind? bind-name bind-val))
+
+(module+ test
+  (test/exn (lookup 'x mt-env)
+            "free variable")
+  (test (lookup 'x (extend-env (bind 'x (numV 8)) mt-env))
+        (numV 8))
+  (test (lookup 'x (extend-env
+                    (bind 'x (numV 9))
+                    (extend-env (bind 'x (numV 8)) mt-env)))
+        (numV 9))
+  (test (lookup 'y (extend-env
+                    (bind 'x (numV 9))
+                    (extend-env (bind 'y (numV 8)) mt-env)))
+        (numV 8)))
+
+;; typecheck ----------------------------------------
+(define (typecheck [a : Exp] [tenv : Type-Env])
+  (type-case Exp a
+    [(numE n) (numT)]
+    [(plusE l r) (typecheck-nums l r tenv)]
+    [(multE l r) (typecheck-nums l r tenv)]
+    [(idE n) (type-lookup n tenv)]
+    [(lamE n arg-type body)
+     (begin
+       (tvarcheck arg-type tenv)
+       (arrowT arg-type
+               (typecheck body 
+                          (extend-env (tbind n arg-type)
+                                      tenv))))]
+    [(appE fun arg)
+     (type-case Type (typecheck fun tenv)
+       [(arrowT arg-type result-type)
+        (if (equal? arg-type
+                    (typecheck arg tenv))
+            result-type
+            (type-error arg
+                        (to-string arg-type)))]
+       [else (type-error fun "function")])]
+    [(boxE c) (boxofT (typecheck c tenv))]
+    [(unboxE b)
+     (type-case Type (typecheck b tenv)
+       [(boxofT t) t]
+       [else (type-error b "box")])]
+    [(set-box!E b v)
+     (type-case Type (typecheck b tenv)
+       [(boxofT t)
+        (if (equal? t (typecheck v tenv))
+            t
+            (type-error v (to-string t)))]
+       [else (type-error b "box")])]
+    [(tylamE n body)
+     (forallT n (typecheck body
+                           (extend-env
+                            (tvar n)
+                            tenv)))]
+    [(tyappE tyfun tyarg)
+     (begin
+       (tvarcheck tyarg tenv)
+       (type-case Type (typecheck tyfun tenv)
+         [(forallT n body)
+          (type-subst n tyarg body)]
+         [else (type-error tyfun "polymorphic value")]))]))
+
+(define (typecheck-nums l r tenv)
+  (type-case Type (typecheck l tenv)
+    [(numT)
+     (type-case Type (typecheck r tenv)
+       [(numT) (numT)]
+       [else (type-error r "num")])]
+    [else (type-error l "num")]))
+
+(define (type-error a msg)
+  (error 'typecheck (string-append
+                     "no type: "
+                     (string-append
+                      (to-string a)
+                      (string-append " not "
+                                     msg)))))
+
+(define type-lookup
+  (make-lookup tbind? tbind-name tbind-type))
+
+(define type-var-lookup
+  (make-lookup tvar? tvar-name tvar-name))
+
+(module+ test
+  (test (typecheck (parse `10) mt-env)
+        (numT))
+  (test (typecheck (parse `{+ 10 17}) mt-env)
+        (numT))
+  (test (typecheck (parse `{* 10 17}) mt-env)
+        (numT))
+  (test (typecheck (parse `{lambda {[x : num]} 12}) mt-env)
+        (arrowT (numT) (numT)))
+  (test (typecheck (parse `{lambda {[x : num]} {lambda {[y : bool]} x}}) mt-env)
+        (arrowT (numT) (arrowT (boolT)  (numT))))
+
+  (test (typecheck (parse `{{lambda {[x : num]} 12}
+                            {+ 1 17}})
+                   mt-env)
+        (numT))
+
+  (test (typecheck (parse `{let {[x : num 4]}
+                             {let {[f : (num -> num)
+                                      {lambda {[y : num]} {+ x y}}]}
+                               {f x}}})
+                   mt-env)
+        (numT))
+
+  (test (typecheck (parse `[LAMBDA ['a]
+                             {lambda {[x : 'a]}
+                               x}])
+                   mt-env)
+        (forallT 'a (arrowT (idT 'a) (idT 'a))))
+  (test (typecheck (parse `[@ [LAMBDA ['a]
+                                {lambda {[x : 'a]}
+                                  x}]
+                              num])
+                   mt-env)
+        (arrowT (numT) (numT)))
+  (test (typecheck (parse `{let {[f : (forall ('a) ('a -> 'a))
+                                    [LAMBDA ['a]
+                                      {lambda {[x : 'a]}
+                                        x}]]}
+                             {+ {[@ f num] 1}
+                                {{[@ f (num -> num)]
+                                  {lambda {[n : num]} {+ n 1}}}
+                                 2}}})
+                   mt-env)
+        (numT))
+
+  (test/exn (typecheck (parse `{+ 1 {box 4}}) empty)
+        "no type")
+
+  (test (typecheck (parse `{box 4}) empty)
+        (boxofT (numT)))
+
+  (test/exn (typecheck (parse `{1 2})
+                       mt-env)
+            "no type")
+  (test/exn (typecheck (parse `{{lambda {[x : bool]} x} 2})
+                       mt-env)
+            "no type")
+  (test/exn (typecheck (parse `{+ 1 {lambda {[x : num]} x}})
+                       mt-env)
+            "no type")
+  (test/exn (typecheck (parse `{* {lambda {[x : num]} x} 1})
+                       mt-env)
+            "no type")
+  (test/exn (typecheck (parse `[@ 1 num])
+                       mt-env)
+            "no type"))
+
+;; tvarcheck ----------------------------------------
+(define (tvarcheck ty tenv)
+  (type-case Type ty
+    [(numT) (values)]
+    [(boolT) (values)]
+    [(arrowT a b) (begin
+                    (tvarcheck a tenv)
+                    (tvarcheck b tenv))]
+    [(boxofT t) (tvarcheck t tenv)]
+    [(idT id) (begin
+                (type-var-lookup id tenv)
+                (values))]
+    [(forallT id t)
+     (tvarcheck t (extend-env
+                   (tvar id)
+                   tenv))]))
+
+(module+ test
+  (test (tvarcheck (numT) mt-env)
+        (values))
+  (test (tvarcheck (boolT) mt-env)
+        (values))
+  (test (tvarcheck (arrowT (numT) (boolT)) mt-env)
+        (values))
+  (test (tvarcheck (idT 'a)
+                   (extend-env (tvar 'a)
+                               mt-env))
+        (values))
+  (test (tvarcheck (forallT 'a (idT 'a))
+                   mt-env)
+        (values))
+  (test/exn (tvarcheck (idT 'a)
+                       mt-env)
+            "free variable"))
+
+;; type-subst ----------------------------------------
+(define (type-subst [what : Symbol] [for : Type] [in : Type])
+  (type-case Type in
+    [(numT) (numT)]
+    [(boolT) (boolT)]
+    [(arrowT l r) (arrowT (type-subst what for l)
+                          (type-subst what for r))]
+    [(idT n) (if (equal? what n)
+                 for
+                 (idT n))]
+    [(boxofT t) (boxofT (type-subst what for t))]
+    [(forallT n body) (cond
+                        [(equal? what n) (forallT n body)]
+                        [(free-type-var? n for)
+                         ;; If we want to replace `a` in
+                         ;; `{forall b (b -> a)}` with `a`, the result
+                         ;; `{forall b (b -> b)}` would be wrong, since the
+                         ;; `b` would get captured. We instead need to
+                         ;; produce `{forall b1 (b1 -> b)}`.
+                         (local [(define new-n (gen-name n 1 for body))
+                                 (define new-body 
+                                   (type-subst n (idT new-n) body))]
+                           (type-subst what
+                                       for
+                                       (forallT new-n new-body)))]
+                        [else
+                         (forallT n (type-subst what for body))])]))
+
+;; Helper function for substitution: generates a name like `n` that is
+;; not currently used (as a free type variable) in `for` or `body`.
+(define (gen-name [n : Symbol] [i : Number] [for : Type] [body : Type])
+  (let ([new-n (string->symbol
+                (string-append (symbol->string n)
+                               (to-string i)))])
+    (if (or (free-type-var? new-n for)
+            (free-type-var? new-n body))
+        (gen-name n (+ i 1) for body)
+        new-n)))
+
+;; Helper function for substutition: check whether a name is used as a
+;; free type variable in a type.
+(define (free-type-var? [n : Symbol] [t : Type])
+  (type-case Type t
+    [(numT) #f]
+    [(boolT) #f]
+    [(arrowT l r) (or (free-type-var? n l)
+                      (free-type-var? n r))]
+    [(idT n-v) (equal? n-v n)]
+    [(boxofT t) (free-type-var? n t)]
+    [(forallT n-f body) (cond
+                          [(equal? n n-f) #f]
+                          [else (free-type-var? n body)])]))
+
+(module+ test
+  (test (free-type-var? 'a (numT))
+        #f)
+  (test (free-type-var? 'a (boolT))
+        #f)
+  (test (free-type-var? 'a (arrowT (idT 'b) (idT 'b)))
+        #f)
+  (test (free-type-var? 'a (arrowT (idT 'a) (idT 'b)))
+        #t)
+  (test (free-type-var? 'a (idT 'a))
+        #t)
+  (test (free-type-var? 'a (idT 'b))
+        #f)
+  (test (free-type-var? 'a (forallT 'a (idT 'a)))
+        #f)
+  (test (free-type-var? 'a (forallT 'b (idT 'a)))
+        #t)
+  (test (free-type-var? 'a (forallT 'b (idT 'c)))
+        #f)
+
+  (test (gen-name 'a 1 (numT) (numT))
+        'a1)
+  (test (gen-name 'a 1 (numT) (idT 'a1))
+        'a2)
+  (test (gen-name 'a 1 (idT 'a1) (numT))
+        'a2)
+  (test (gen-name 'a 1 (arrowT (numT) (idT 'a1)) (numT))
+        'a2)
+  (test (gen-name 'a 1 (forallT 'a1 (idT 'a1)) (numT))
+        'a1)
+  (test (gen-name 'a 1 (forallT 'b (idT 'a1)) (numT))
+        'a2)
+
+  (test (type-subst 'a (boolT) (numT))
+        (numT))
+  (test (type-subst 'a (numT) (boolT))
+        (boolT))
+  (test (type-subst 'a (numT) (arrowT (idT 'a) (boolT)))
+        (arrowT (numT) (boolT)))
+  (test (type-subst 'a (numT) (idT 'a))
+        (numT))
+  (test (type-subst 'a (numT) (idT 'b))
+        (idT 'b))
+  (test (type-subst 'a (numT) (forallT 'a (idT 'a)))
+        (forallT 'a (idT 'a)))
+  (test (type-subst 'a (numT) (forallT 'b (idT 'a)))
+        (forallT 'b (numT)))
+  (test (type-subst 'a (idT 'b) (forallT 'b (idT 'a)))
+        (forallT 'b1 (idT 'b)))
+  (test (type-subst 'a (idT 'b) (forallT 'b (arrowT (idT 'a)
+                                                    (arrowT (idT 'b1)
+                                                            (idT 'b)))))
+        (forallT 'b2 (arrowT (idT 'b) 
+                             (arrowT (idT 'b1)
+                                     (idT 'b2))))))
+
+
+#lang plait ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define-type (Treeof 'a) 
+  (leaf [val : 'a])
+  (node [val : 'a]
+        [left : (Treeof 'a)]
+        [right : (Treeof 'a)]))
+
+(define (contains? [t : (Treeof 'a)] [n : 'a]) : Boolean
+  (type-case (Treeof 'a) t
+    [(leaf v) (equal? v n)]
+    [(node v l r)
+     (or (equal? v n)
+         (contains? l n)
+         (contains? r n))]))
+
+(print-only-errors #t)
+(test (contains? (leaf 10) 10) #t)
+(test (contains? (leaf 10) 11) #f)
+(test (contains? (node 5 (leaf 6) (leaf 7)) 6) #t)
+(test (contains? (node 5 (leaf 6) (leaf 7)) 16) #f)
+(test (contains? (node "5" (leaf "6") (leaf "7")) "16") #f)
+
+;; Determines whether every value in `t' is
+;; greater than `n' and sorted, returning the
+;; maximum value in `t'.
+;; This implementation checks for an in-order
+;; sort, but in a way that could be easily
+;; adapted to a pre-order sort.
+(define (sorted-with [t : (Treeof 'a)]
+                     [n : 'a]
+                     [comparator : ('a 'a -> Boolean)]) : (Optionof 'a)
+  (type-case (Treeof 'a) t
+    [(leaf v) (if (comparator v n) 
+                  (some v)
+                  (none))]
+    [(node v l r)
+     (local [(define n2 (sorted-with l n comparator))]
+       (type-case (Optionof 'a) n2
+         [(none) (none)]
+         [(some n2) ; l is sorted
+          (if (comparator v n2) ; v is as big as max of `l'
+              (sorted-with r v comparator)
+              (none))]))]))
+
+(test (sorted-with (leaf 10) 0 >=) (some 10))
+(test (sorted-with (leaf 10) 10 >=) (some 10))
+(test (sorted-with (leaf 10) 11 >=) (none)) 
+(test (sorted-with (node 11 (leaf 10) (leaf 12)) 0 >=) (some 12))
+(test (sorted-with (node 10 (leaf 11) (leaf 12)) 0 >=) (none))
+(test (sorted-with (node 11 (leaf 10) (leaf 9)) 0 >=) (none))
+(test (sorted-with (node 11 (leaf 10) (leaf 12)) 14 >=) (none))
+
+(define-type-alias (T 'a) (Treeof 'a))
+
+(define (sorted? [t : (T 'a)]
+                 [comparator : ('a 'a -> Boolean)]
+                 [beginning : 'a]) : Boolean
+  (type-case (Optionof 'a) (sorted-with t beginning comparator)
+    [(none) #f]
+    [(some n) #t]))
+
+(test (sorted? (leaf 0) >= -inf.0) #t)
+(test (sorted? (leaf -1) >= -inf.0) #t)
+(test (sorted? (node 0 (leaf -2) (leaf 2)) >= -inf.0) #t)
+(test (sorted? (node 0 (leaf 1) (leaf 2)) >= -inf.0) #f)
+(test (sorted? (node 0 (leaf -2) (leaf -1)) >= -inf.0) #f)
+
+(test (sorted? (node "apple" (leaf "aardvark") (leaf "bug")) (lambda (x y) #t) "") #t)
+______________
+
+
+__Notes__
 
 
 
 
+S-Expressions and Macros *************************************
+
+__Class Demo__
 
 
+______________
 
 
+__Notes__
+
+An extensible parser provides hooks for a language
+implementer to add sugar
+  - Programs that use the new sugar must be run with the
+extended implementation
+  - Different sets of extensions don’t work together
+
+An extensible language provides hooks for a
+language user to add sugar
+  - Programs can use new sugar with the existing
+implementation
+  - Different sets of extensions can work together
+
+Macro should not interp their expression arguments.
+
+Bad idea to interp an expression more than once when it was only inteded to be interped once in the original program.
+
+Hygiene in Macro systems where you get unwanted name shadowing. 
+
+
+ *************************************
+
+__Class Demo__
+
+
+______________
+
+
+__Notes__
 
 
 
